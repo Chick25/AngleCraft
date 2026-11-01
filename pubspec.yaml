@@ -37,8 +37,11 @@ dependencies:
   gal: ^2.3.0
   permission_handler: ^11.3.1
   shared_preferences: ^2.3.2
+  image_gallery_saver: ^2.0.3
   path: ^1.9.0
   vector_math: ^2.1.4
+  hive: ^2.2.3
+  hive_flutter: ^1.1.0
 
 
   # The following adds the Cupertino Icons font to your application.
