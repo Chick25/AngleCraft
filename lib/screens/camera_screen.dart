@@ -2,6 +2,9 @@ import 'package:flutter/material.dart';
 import '../services/sensor_service.dart';
 import '../widgets/ghost_overlay.dart';
 import '../widgets/smart_grid.dart';
+import '../services/camera_service.dart';
+
+import 'package:camera/camera.dart';
 
 class CameraScreen extends StatefulWidget {
   const CameraScreen({Key? key}) : super(key: key);
@@ -11,10 +14,30 @@ class CameraScreen extends StatefulWidget {
 }
 
 class _CameraScreenState extends State<CameraScreen> {
+
+  final CameraService _cameraService = CameraService();
   // Khởi tạo các trạng thái hiển thị
   double _ghostOpacity = 0.4;
   bool _isGridVisible = true;
   String? _selectedPosePath; // Ảnh mẫu đang chọn
+
+  @override
+  void initState() {
+    super.initState();
+    _cameraService.initializeCamera();
+    _initCamera();
+  }
+
+  @override
+  void dispose() {
+    _cameraService.dispose();
+    super.dispose();
+  }
+
+  Future<void> _initCamera() async {
+    await _cameraService.initializeCamera();
+    setState(() {}); // Cập nhật giao diện sau khi camera được khởi tạo
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -23,8 +46,14 @@ class _CameraScreenState extends State<CameraScreen> {
       body: Stack(
         children: [
           // 1. Tầng dưới cùng: Camera Preview (Giả lập hoặc từ camera_service)
-          const Positioned.fill(
-            child: Center(child: Text("Camera Preview Stream", style: TextStyle(color: Colors.white))),
+          Positioned.fill(
+            child: (_cameraService.controller != null && _cameraService.controller!.value.isInitialized)
+                ? CameraPreview(_cameraService.controller!)
+                : const Center(
+                    child: CircularProgressIndicator(
+                      color: Colors.yellowAccent,
+                    ),
+                  ),
           ),
 
           // 2. Tầng lưới bố cục thông minh
@@ -76,8 +105,19 @@ class _CameraScreenState extends State<CameraScreen> {
                       // Nút chụp ảnh chính
                       FloatingActionButton(
                         backgroundColor: Colors.yellowAccent,
-                        onPressed: () {
-                          // TODO: Gọi hàm chụp ảnh từ camera_service
+                        onPressed: () async {
+                          // Gọi hàm chụp và lưu ảnh
+                          bool success = await _cameraService.takeAndSavePicture();
+                          
+                          if (success) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(content: Text("Đã lưu ảnh vào bộ sưu tập thành công!")),
+                            );
+                          } else {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(content: Text("Chụp ảnh thất bại. Vui lòng thử lại.")),
+                            );
+                          }
                         },
                         child: const Icon(Icons.camera, color: Colors.black, size: 36),
                       ),
