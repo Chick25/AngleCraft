@@ -2,6 +2,18 @@ import 'package:camera/camera.dart';
 import 'package:flutter/foundation.dart';
 import 'package:gal/gal.dart';
 
+import 'media_gallery_service.dart';
+
+class GalleryExportException implements Exception {
+  final String localPath;
+  final Object cause;
+
+  const GalleryExportException(this.localPath, this.cause);
+
+  @override
+  String toString() => 'Không thể lưu ảnh vào thư viện thiết bị: $cause';
+}
+
 class CameraService {
   CameraController? controller;
   List<CameraDescription>? cameras;
@@ -35,20 +47,40 @@ class CameraService {
 
   // Hàm chụp và lưu thẳng vào thư viện ảnh của điện thoại
   Future<bool> takeAndSavePicture() async {
-    if (controller == null || !controller!.value.isInitialized) return false;
-
     try {
-      // 1. Tiến hành chụp ảnh (trả về file tạm trên thiết bị)
-      XFile capturedImage = await controller!.takePicture();
-
-      // 2. Lưu file ảnh đó trực tiếp vào bộ sưu tập (Gallery) của máy Android
-      await Gal.putImage(capturedImage.path);
-
-      return true; // Lưu thành công
+      return await captureAndSavePicture() != null;
     } catch (e) {
       debugPrint('Lỗi khi chụp hoặc lưu ảnh: $e');
       return false;
     }
+  }
+
+  Future<String?> captureAndSavePicture() async {
+    final temporaryPath = await capturePicture();
+    if (temporaryPath == null) return null;
+    return saveCapturedPicture(temporaryPath);
+  }
+
+  Future<String?> capturePicture() async {
+    final activeController = controller;
+    if (activeController == null || !activeController.value.isInitialized) {
+      return null;
+    }
+    final capturedImage = await activeController.takePicture();
+    return capturedImage.path;
+  }
+
+  Future<String> saveCapturedPicture(String sourcePath) async {
+    final savedPhoto = await MediaGalleryService.saveCapture(sourcePath);
+    try {
+      if (!await Gal.hasAccess() && !await Gal.requestAccess()) {
+        throw StateError('Bạn chưa cấp quyền lưu ảnh vào thư viện thiết bị.');
+      }
+      await Gal.putImage(savedPhoto.path);
+    } catch (error) {
+      throw GalleryExportException(savedPhoto.path, error);
+    }
+    return savedPhoto.path;
   }
 
   Future<void> dispose() async {

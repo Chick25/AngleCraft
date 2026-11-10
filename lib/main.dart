@@ -1,9 +1,11 @@
 import 'package:angle_craft/screens/camera_screen.dart';
 import 'package:flutter/material.dart';
 
+import 'services/storage_service.dart';
 
-
-void main() {
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await StorageService.init();
   runApp(const MyApp());
 }
 
@@ -18,7 +20,7 @@ class MyApp extends StatelessWidget {
       theme: ThemeData(
         colorScheme: .fromSeed(seedColor: Colors.deepPurple),
       ),
-      home: const CameraScreen()
+      home: const CameraScreen(),
     );
   }
 }

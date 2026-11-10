@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 
 import '../models/pose_item.dart';
+import '../models/saved_angle.dart';
 import 'pose_silhouette.dart';
 
 class GhostOverlayWidget extends StatefulWidget {
@@ -10,6 +11,8 @@ class GhostOverlayWidget extends StatefulWidget {
   final double opacity;
   final bool isAsset;
   final PoseItem? pose;
+  final GhostTransform initialTransform;
+  final ValueChanged<GhostTransform>? onTransformEnd;
 
   const GhostOverlayWidget({
     super.key,
@@ -17,6 +20,8 @@ class GhostOverlayWidget extends StatefulWidget {
     this.opacity = 0.4,
     this.isAsset = true,
     this.pose,
+    this.initialTransform = const GhostTransform(),
+    this.onTransformEnd,
   });
 
   @override
@@ -24,9 +29,12 @@ class GhostOverlayWidget extends StatefulWidget {
 }
 
 class _GhostOverlayWidgetState extends State<GhostOverlayWidget> {
-  double _scale = 1;
-  double _rotation = 0;
-  Offset _offset = Offset.zero;
+  late double _scale = widget.initialTransform.scale;
+  late double _rotation = widget.initialTransform.rotation;
+  late Offset _offset = Offset(
+    widget.initialTransform.offsetX,
+    widget.initialTransform.offsetY,
+  );
   double _startingScale = 1;
   double _startingRotation = 0;
 
@@ -75,6 +83,16 @@ class _GhostOverlayWidgetState extends State<GhostOverlayWidget> {
               _rotation = _startingRotation + details.rotation;
               _offset += details.focalPointDelta;
             });
+          },
+          onScaleEnd: (_) {
+            widget.onTransformEnd?.call(
+              GhostTransform(
+                offsetX: _offset.dx,
+                offsetY: _offset.dy,
+                scale: _scale,
+                rotation: _rotation,
+              ),
+            );
           },
           child: RepaintBoundary(
             child: Transform.translate(
