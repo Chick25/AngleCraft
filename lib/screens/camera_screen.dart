@@ -1,14 +1,20 @@
+import 'dart:async';
+
 import 'package:camera/camera.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 
 import '../widgets/ghost_overlay.dart';
 import '../widgets/level_indicator.dart';
+import '../widgets/pose_skeleton_overlay.dart';
 import 'pose_catalog_screen.dart';
 import '../widgets/smart_grid.dart';
 import '../widgets/smart_grid_painter.dart';
 import '../models/pose_item.dart';
 import '../services/camera_service.dart';
+import '../services/pose_detection_service.dart';
+import '../services/pose_matching_service.dart';
 import '../services/sensor_service.dart';
 
 class CameraScreen extends StatefulWidget {
@@ -20,6 +26,7 @@ class CameraScreen extends StatefulWidget {
 
 class _CameraScreenState extends State<CameraScreen> {
   final CameraService _cameraService = CameraService();
+  final PoseDetectionService _poseDetectionService = PoseDetectionService();
   final SensorService _sensorService = SensorService();
   final ValueNotifier<({double roll, double pitch})?> _levelReading =
       ValueNotifier(null);
@@ -36,6 +43,10 @@ class _CameraScreenState extends State<CameraScreen> {
 
   bool _isInitialized = false;
   String? _cameraError;
+  bool _isPoseAssistEnabled = false;
+  int _poseMatchStreak = 0;
+  DetectedPoseFrame? _detectedPoseFrame;
+  PoseMatchResult? _poseMatchResult;
 
   @override
   void initState() {
@@ -60,10 +71,17 @@ class _CameraScreenState extends State<CameraScreen> {
 
   @override
   void dispose() {
-    _cameraService.dispose();
+    unawaited(_releaseCameraResources());
     _sensorService.stopListening();
     _levelReading.dispose();
     super.dispose();
+  }
+
+  Future<void> _releaseCameraResources() async {
+    final controller = _cameraService.controller;
+    if (controller != null) await _stopImageStream(controller);
+    await _poseDetectionService.close();
+    await _cameraService.dispose();
   }
 
   Future<void> _initCamera() async {
@@ -186,6 +204,8 @@ class _CameraScreenState extends State<CameraScreen> {
     if (_isPickingPose) return;
 
     final messenger = ScaffoldMessenger.of(context);
+    if (_isPoseAssistEnabled) await _stopPoseAssist();
+    if (!mounted) return;
     setState(() => _isPickingPose = true);
     try {
       final image = await ImagePicker().pickImage(source: ImageSource.gallery);
@@ -212,6 +232,7 @@ class _CameraScreenState extends State<CameraScreen> {
   }
 
   void _removeGhostImage() {
+    if (_isPoseAssistEnabled) unawaited(_stopPoseAssist());
     setState(() {
       _selectedPosePath = null;
       _selectedCatalogPose = null;
@@ -219,6 +240,8 @@ class _CameraScreenState extends State<CameraScreen> {
   }
 
   Future<void> _selectCatalogPose() async {
+    if (_isPoseAssistEnabled) await _stopPoseAssist();
+    if (!mounted) return;
     final pose = await Navigator.of(context).push<PoseItem>(
       MaterialPageRoute(builder: (_) => const PoseCatalogScreen()),
     );
@@ -227,7 +250,187 @@ class _CameraScreenState extends State<CameraScreen> {
       _selectedCatalogPose = pose;
       _selectedPosePath = null;
       _ghostRevision++;
+      _poseMatchStreak = 0;
+      _detectedPoseFrame = null;
+      _poseMatchResult =
+          pose.style == PoseStyle.standing || pose.style == PoseStyle.handOnHip
+          ? null
+          : PoseMatchingService.evaluate(null, pose);
     });
+  }
+
+  Future<void> _togglePoseAssist() async {
+    if (_isPoseAssistEnabled) {
+      await _stopPoseAssist();
+      return;
+    }
+
+    final messenger = ScaffoldMessenger.of(context);
+    if (_selectedCatalogPose == null) {
+      messenger.showSnackBar(
+        const SnackBar(
+          content: Text('Hãy chọn một dáng trong thư viện trước.'),
+        ),
+      );
+      return;
+    }
+    if (!PoseMatchingService.supports(_selectedCatalogPose!)) {
+      messenger.showSnackBar(
+        const SnackBar(
+          content: Text(
+            'AI thử nghiệm hiện hỗ trợ dáng đứng và tay đặt bên hông.',
+          ),
+        ),
+      );
+      return;
+    }
+    if (kIsWeb || defaultTargetPlatform != TargetPlatform.android) {
+      messenger.showSnackBar(
+        const SnackBar(
+          content: Text('Hướng dẫn dáng bằng AI hiện hỗ trợ Android.'),
+        ),
+      );
+      return;
+    }
+
+    final controller = _cameraService.controller;
+    if (controller == null || !controller.value.isInitialized) {
+      messenger.showSnackBar(
+        const SnackBar(content: Text('Camera chưa sẵn sàng.')),
+      );
+      return;
+    }
+
+    setState(() {
+      _isPoseAssistEnabled = true;
+      _poseMatchStreak = 0;
+      _detectedPoseFrame = null;
+      _poseMatchResult = null;
+    });
+    try {
+      await controller.startImageStream((image) {
+        _processPoseFrame(image, controller);
+      });
+    } catch (error) {
+      if (!mounted) return;
+      setState(() => _isPoseAssistEnabled = false);
+      messenger.showSnackBar(
+        SnackBar(content: Text('Không thể bật nhận diện dáng: $error')),
+      );
+    }
+  }
+
+  Future<void> _stopPoseAssist() async {
+    final controller = _cameraService.controller;
+    if (mounted) {
+      setState(() {
+        _isPoseAssistEnabled = false;
+        _poseMatchStreak = 0;
+        _detectedPoseFrame = null;
+        _poseMatchResult = null;
+      });
+    }
+    if (controller != null) await _stopImageStream(controller);
+  }
+
+  Future<void> _stopImageStream(CameraController controller) async {
+    if (controller.value.isStreamingImages) {
+      await controller.stopImageStream();
+    }
+  }
+
+  Future<void> _processPoseFrame(
+    CameraImage image,
+    CameraController controller,
+  ) async {
+    if (!_isPoseAssistEnabled || _selectedCatalogPose == null) return;
+    try {
+      final frame = await _poseDetectionService.processImage(
+        image,
+        controller.description,
+        controller.value.deviceOrientation,
+      );
+      if (!mounted || !_isPoseAssistEnabled || frame == null) return;
+      final result = PoseMatchingService.evaluate(
+        frame.pose,
+        _selectedCatalogPose!,
+      );
+      setState(() {
+        _detectedPoseFrame = frame;
+        _poseMatchResult = result;
+        _poseMatchStreak = result.isMatched
+            ? (_poseMatchStreak + 1).clamp(0, 3).toInt()
+            : 0;
+      });
+    } catch (error) {
+      if (!mounted || !_isPoseAssistEnabled) return;
+      final messenger = ScaffoldMessenger.of(context);
+      setState(() => _isPoseAssistEnabled = false);
+      await _stopImageStream(controller);
+      if (!mounted) return;
+      messenger.showSnackBar(
+        SnackBar(content: Text('Lỗi nhận diện dáng: $error')),
+      );
+    }
+  }
+
+  Widget _buildPoseAssistStatus() {
+    final isMatched = _poseMatchStreak >= 3;
+    final color = isMatched ? Colors.greenAccent : Colors.yellowAccent;
+    final result = _poseMatchResult;
+    final message =
+        result?.feedback ??
+        (_detectedPoseFrame == null
+            ? 'Đang tìm người trong khung hình...'
+            : 'Đang phân tích tư thế...');
+
+    return Container(
+      key: const ValueKey('poseAssistStatus'),
+      margin: const EdgeInsets.symmetric(horizontal: 24),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.72),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: color.withValues(alpha: 0.8)),
+      ),
+      child: Row(
+        children: [
+          Icon(
+            isMatched ? Icons.check_circle : Icons.accessibility_new,
+            color: color,
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  isMatched ? 'ĐÃ KHỚP' : 'ĐANG CĂN DÁNG',
+                  style: TextStyle(
+                    color: color,
+                    fontWeight: FontWeight.bold,
+                    letterSpacing: 0.5,
+                  ),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  message,
+                  style: const TextStyle(color: Colors.white, fontSize: 13),
+                ),
+              ],
+            ),
+          ),
+          if (result != null && result.isSupported) ...[
+            const SizedBox(width: 8),
+            Text(
+              '${result.score}%',
+              style: TextStyle(color: color, fontWeight: FontWeight.bold),
+            ),
+          ],
+        ],
+      ),
+    );
   }
 
   Widget _buildCameraFrame() {
@@ -278,6 +481,18 @@ class _CameraScreenState extends State<CameraScreen> {
                     pose: _selectedCatalogPose,
                     opacity: _ghostOpacity,
                     isAsset: false,
+                  ),
+                if (_isPoseAssistEnabled &&
+                    _detectedPoseFrame?.pose != null &&
+                    _detectedPoseFrame != null)
+                  Positioned.fill(
+                    child: PoseSkeletonOverlay(
+                      pose: _detectedPoseFrame!.pose!,
+                      imageSize: _detectedPoseFrame!.imageSize,
+                      rotation: _detectedPoseFrame!.rotation,
+                      lensDirection: _detectedPoseFrame!.lensDirection,
+                      isMatched: _poseMatchStreak >= 3,
+                    ),
                   ),
                 if (_selectedPosePath != null || _selectedCatalogPose != null)
                   Positioned(
@@ -344,6 +559,20 @@ class _CameraScreenState extends State<CameraScreen> {
                           Row(
                             children: [
                               IconButton(
+                                tooltip: _isPoseAssistEnabled
+                                    ? 'Tắt hướng dẫn dáng bằng AI'
+                                    : 'Bật hướng dẫn dáng bằng AI',
+                                icon: Icon(
+                                  Icons.center_focus_strong,
+                                  color: _isPoseAssistEnabled
+                                      ? (_poseMatchStreak >= 3
+                                            ? Colors.greenAccent
+                                            : Colors.yellowAccent)
+                                      : Colors.white,
+                                ),
+                                onPressed: _togglePoseAssist,
+                              ),
+                              IconButton(
                                 tooltip: 'Mở thư viện dáng chụp',
                                 icon: const Icon(
                                   Icons.accessibility_new,
@@ -402,6 +631,8 @@ class _CameraScreenState extends State<CameraScreen> {
                     ],
                   ),
                 ),
+
+                if (_isPoseAssistEnabled) _buildPoseAssistStatus(),
 
                 // Footer nút chụp ảnh và chọn dáng
                 Padding(

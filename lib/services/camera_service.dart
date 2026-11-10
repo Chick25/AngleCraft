@@ -18,16 +18,17 @@ class CameraService {
       (camera) => camera.lensDirection == CameraLensDirection.back,
       orElse: () => available.first,
     );
-    controller = CameraController(
+    final cameraController = CameraController(
       camera,
       ResolutionPreset.medium,
       enableAudio: false,
     );
+    controller = cameraController;
     try {
-      await controller!.initialize();
+      await cameraController.initialize();
     } catch (_) {
-      await controller!.dispose();
-      controller = null;
+      await cameraController.dispose();
+      if (identical(controller, cameraController)) controller = null;
       rethrow;
     }
   }
@@ -50,7 +51,9 @@ class CameraService {
     }
   }
 
-  void dispose() {
-    controller?.dispose();
+  Future<void> dispose() async {
+    final activeController = controller;
+    controller = null;
+    await activeController?.dispose();
   }
 }

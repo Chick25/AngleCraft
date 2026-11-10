@@ -2,6 +2,20 @@
 
 A new Flutter project.
 
+## AI Pose Assist
+
+On Android, choose a built-in **standing** or **hand-on-hip** pose, then tap
+the focus icon to enable on-device pose guidance. A yellow skeleton means the
+pose is still being adjusted; green means the main joint checks have matched
+for several processed frames. The score is a heuristic guide, not a guarantee
+of an identical pose. Other catalog styles and gallery images remain available
+for manual ghost-overlay alignment.
+
+Pose frames are processed locally with Google ML Kit. Frames are skipped while
+the detector is busy to avoid building up latency. This feature is currently
+Android-only; the existing camera and manual overlay continue to work on other
+platforms.
+
 ## Getting Started
 
 This project is a starting point for a Flutter application.
