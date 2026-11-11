@@ -80,6 +80,101 @@ void main() {
     expect(result.isMatched, isFalse);
     expect(result.feedback, contains('Đưa người mẫu vào khung hình'));
   });
+
+  test('matches a custom pose using normalized joint positions', () {
+    const customPose = PoseItem(
+      id: 'custom-rail',
+      title: 'Tựa lan can',
+      description: 'Custom skeleton',
+      category: PoseCategory.travel,
+      style: PoseStyle.standing,
+      customLandmarks: {
+        'nose': Offset(0.5, 0.1),
+        'leftShoulder': Offset(0.4, 0.23),
+        'rightShoulder': Offset(0.6, 0.25),
+        'leftElbow': Offset(0.34, 0.37),
+        'leftWrist': Offset(0.35, 0.49),
+        'rightElbow': Offset(0.73, 0.29),
+        'rightWrist': Offset(0.88, 0.29),
+        'leftHip': Offset(0.44, 0.52),
+        'rightHip': Offset(0.58, 0.54),
+        'leftKnee': Offset(0.42, 0.73),
+        'rightKnee': Offset(0.63, 0.73),
+        'leftAnkle': Offset(0.40, 0.94),
+        'rightAnkle': Offset(0.66, 0.94),
+      },
+    );
+    final detectedPose = _createPose({
+      for (final entry in customPose.customLandmarks!.entries)
+        PoseLandmarkType.values.byName(entry.key): (
+          entry.value.dx * 100,
+          entry.value.dy * 100,
+        ),
+    });
+
+    final result = PoseMatchingService.evaluate(detectedPose, customPose);
+
+    expect(PoseMatchingService.supports(customPose), isTrue);
+    expect(result.isMatched, isTrue);
+    expect(result.score, greaterThanOrEqualTo(95));
+  });
+
+  test('extracts normalized body landmarks from an uploaded-image pose', () {
+    final landmarks = PoseMatchingService.customLandmarksFromPose(standingPose);
+    expect(landmarks, isNotNull);
+    final uploadedPose = PoseItem(
+      id: 'uploaded-reference',
+      title: 'Uploaded reference',
+      description: 'Detected reference joints',
+      category: PoseCategory.travel,
+      style: PoseStyle.standing,
+      customLandmarks: landmarks!,
+    );
+
+    expect(landmarks.length, 12);
+    expect(landmarks['leftShoulder'], const Offset(1 / 6, 0));
+    expect(landmarks['rightAnkle'], const Offset(0.7, 1));
+    expect(
+      PoseMatchingService.evaluate(standingPose, uploadedPose).isMatched,
+      isTrue,
+    );
+  });
+
+  test('rejects uploaded-image poses without enough confident body joints', () {
+    final incompletePose = _createPose({
+      PoseLandmarkType.leftShoulder: const (40, 40),
+      PoseLandmarkType.rightShoulder: const (60, 40),
+      PoseLandmarkType.leftElbow: const (35, 60),
+      PoseLandmarkType.rightElbow: const (65, 60),
+      PoseLandmarkType.leftWrist: const (35, 80),
+    });
+
+    expect(PoseMatchingService.customLandmarksFromPose(incompletePose), isNull);
+  });
+
+  test('custom pose coordinates survive local storage serialization', () {
+    const customPose = PoseItem(
+      id: 'custom-rail',
+      title: 'Tựa lan can',
+      description: 'Custom skeleton',
+      category: PoseCategory.travel,
+      style: PoseStyle.standing,
+      customLandmarks: {
+        'nose': Offset(0.5, 0.1),
+        'leftShoulder': Offset(0.4, 0.23),
+        'rightShoulder': Offset(0.6, 0.25),
+        'leftElbow': Offset(0.34, 0.37),
+        'leftWrist': Offset(0.35, 0.49),
+        'leftHip': Offset(0.44, 0.52),
+      },
+    );
+
+    final restored = PoseItem.fromMap(customPose.toMap());
+
+    expect(restored.id, customPose.id);
+    expect(restored.title, customPose.title);
+    expect(restored.customLandmarks, customPose.customLandmarks);
+  });
 }
 
 Pose _createPose(Map<PoseLandmarkType, (double, double)> points) => Pose(

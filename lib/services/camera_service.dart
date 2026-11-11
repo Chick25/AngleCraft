@@ -34,6 +34,10 @@ class CameraService {
       camera,
       ResolutionPreset.medium,
       enableAudio: false,
+      imageFormatGroup:
+          !kIsWeb && defaultTargetPlatform == TargetPlatform.android
+          ? ImageFormatGroup.nv21
+          : null,
     );
     controller = cameraController;
     try {

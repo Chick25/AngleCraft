@@ -5,6 +5,24 @@ import 'package:angle_craft/widgets/pose_silhouette.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+Future<void> _pinchOverlay(WidgetTester tester, Finder overlay) async {
+  final rect = tester.getRect(overlay);
+  final first = await tester.startGesture(
+    rect.center - const Offset(20, 0),
+    pointer: 1,
+  );
+  final second = await tester.startGesture(
+    rect.center + const Offset(20, 0),
+    pointer: 2,
+  );
+  await first.moveTo(rect.center - const Offset(50, 0));
+  await second.moveTo(rect.center + const Offset(50, 0));
+  await tester.pump();
+  await first.up();
+  await second.up();
+  await tester.pump();
+}
+
 void main() {
   testWidgets('fits the sample image without changing its aspect ratio', (
     tester,
@@ -100,6 +118,71 @@ void main() {
     expect(finalTransform, isNotNull);
     expect(finalTransform!.offsetX, closeTo(40, 0.1));
     expect(finalTransform!.offsetY, closeTo(25, 0.1));
+  });
+
+  testWidgets('forwards preview taps and pinch updates', (tester) async {
+    Offset? cameraTap;
+    final cameraPointerCounts = <int>[];
+    GhostTransform? finalTransform;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: SizedBox(
+            width: 240,
+            height: 400,
+            child: GhostOverlayWidget(
+              imagePath: 'missing_sample_image.jpg',
+              isAsset: false,
+              onCameraTap: (position) => cameraTap = position,
+              onCameraScaleUpdate: (details) =>
+                  cameraPointerCounts.add(details.pointerCount),
+              onTransformEnd: (transform) => finalTransform = transform,
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    final overlay = find.byKey(const ValueKey('ghostOverlayGesture'));
+    await tester.tapAt(tester.getTopLeft(overlay) + const Offset(30, 45));
+    expect(cameraTap, const Offset(30, 45));
+
+    await _pinchOverlay(tester, overlay);
+
+    expect(cameraPointerCounts, contains(2));
+    expect(finalTransform, isNotNull);
+    expect(finalTransform!.scale, closeTo(1, 0.1));
+  });
+
+  testWidgets('keeps ghost scaling when camera pinch zoom is disabled', (
+    tester,
+  ) async {
+    GhostTransform? finalTransform;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: SizedBox(
+            width: 240,
+            height: 400,
+            child: GhostOverlayWidget(
+              imagePath: 'missing_sample_image.jpg',
+              isAsset: false,
+              onTransformEnd: (transform) => finalTransform = transform,
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    await _pinchOverlay(
+      tester,
+      find.byKey(const ValueKey('ghostOverlayGesture')),
+    );
+
+    expect(finalTransform, isNotNull);
+    expect(finalTransform!.scale, greaterThan(1));
   });
 
   testWidgets('renders a selected offline pose as an interactive overlay', (

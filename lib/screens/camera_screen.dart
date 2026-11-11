@@ -43,6 +43,8 @@ class _CameraScreenState extends State<CameraScreen> {
   GridType _gridType = GridType.thirds;
   String? _selectedPosePath;
   PoseItem? _selectedCatalogPose;
+  PoseItem? _selectedUploadedPose;
+  String? _uploadedPoseError;
   GhostTransform _ghostTransform = const GhostTransform();
   bool _isPickingPose = false;
   int _ghostRevision = 0;
@@ -51,6 +53,23 @@ class _CameraScreenState extends State<CameraScreen> {
   bool _isCapturing = false;
   bool _isCaptureInProgress = false;
   String? _cameraError;
+  final GlobalKey _cameraPreviewKey = GlobalKey();
+  double _minZoomLevel = 1;
+  double _maxZoomLevel = 1;
+  double _zoomLevel = 1;
+  double _appliedZoomLevel = 1;
+  Timer? _zoomDebounce;
+  double _minExposureOffset = 0;
+  double _maxExposureOffset = 0;
+  double _exposureOffset = 0;
+  double _appliedExposureOffset = 0;
+  String? _exposureError;
+  Timer? _exposureDebounce;
+  Offset? _focusPoint;
+  bool _isFocusIndicatorVisible = false;
+  Timer? _focusIndicatorTimer;
+  double _pinchStartZoom = 1;
+  bool _isCameraPinchZoomEnabled = true;
   bool _isPoseAssistEnabled = false;
   int _poseMatchStreak = 0;
   DetectedPoseFrame? _detectedPoseFrame;
@@ -79,6 +98,9 @@ class _CameraScreenState extends State<CameraScreen> {
 
   @override
   void dispose() {
+    _zoomDebounce?.cancel();
+    _exposureDebounce?.cancel();
+    _focusIndicatorTimer?.cancel();
     unawaited(_releaseCameraResources());
     _sensorService.stopListening();
     _levelReading.dispose();
@@ -95,9 +117,38 @@ class _CameraScreenState extends State<CameraScreen> {
   Future<void> _initCamera() async {
     try {
       await _cameraService.initializeCamera();
+      final controller = _cameraService.controller!;
+      final minimumZoom = await controller.getMinZoomLevel();
+      final maximumZoom = await controller.getMaxZoomLevel();
+      var minimumExposure = 0.0;
+      var maximumExposure = 0.0;
+      String? exposureError;
+      try {
+        final supportedMinimum = await controller.getMinExposureOffset();
+        final supportedMaximum = await controller.getMaxExposureOffset();
+        if (supportedMinimum > supportedMaximum) {
+          throw StateError('Camera trả về dải phơi sáng không hợp lệ.');
+        }
+        minimumExposure = supportedMinimum;
+        maximumExposure = supportedMaximum;
+        if (minimumExposure == maximumExposure) {
+          exposureError = 'Camera không hỗ trợ điều chỉnh phơi sáng.';
+        }
+      } catch (error) {
+        exposureError = 'Không thể đọc dải phơi sáng: $error';
+      }
       if (!mounted) return;
       setState(() {
         _isInitialized = true;
+        _minZoomLevel = minimumZoom;
+        _maxZoomLevel = maximumZoom;
+        _zoomLevel = minimumZoom;
+        _appliedZoomLevel = minimumZoom;
+        _minExposureOffset = minimumExposure;
+        _maxExposureOffset = maximumExposure;
+        _exposureOffset = 0.clamp(minimumExposure, maximumExposure).toDouble();
+        _appliedExposureOffset = _exposureOffset;
+        _exposureError = exposureError;
       });
     } catch (error) {
       if (!mounted) return;
@@ -221,9 +272,61 @@ class _CameraScreenState extends State<CameraScreen> {
       setState(() {
         _selectedPosePath = image.path;
         _selectedCatalogPose = null;
+        _selectedUploadedPose = null;
+        _uploadedPoseError = null;
         _ghostTransform = const GhostTransform();
         _ghostRevision++;
       });
+      if (kIsWeb || defaultTargetPlatform != TargetPlatform.android) {
+        const message =
+            'AI phân tích ảnh mẫu hiện chỉ hỗ trợ Android. '
+            'Ảnh vẫn dùng được để căn thủ công.';
+        setState(() => _uploadedPoseError = message);
+        messenger.showSnackBar(SnackBar(content: Text(message)));
+        return;
+      }
+
+      try {
+        final detectedPose = await _poseDetectionService.detectPoseInFile(
+          image.path,
+        );
+        final landmarks = detectedPose == null
+            ? null
+            : PoseMatchingService.customLandmarksFromPose(detectedPose);
+        if (!mounted) return;
+        if (landmarks == null) {
+          const message =
+              'Không tìm thấy đủ khớp cơ thể trong ảnh mẫu. '
+              'Ảnh vẫn dùng được để căn thủ công.';
+          setState(() => _uploadedPoseError = message);
+          messenger.showSnackBar(SnackBar(content: Text(message)));
+          return;
+        }
+        setState(() {
+          _selectedUploadedPose = PoseItem(
+            id: 'uploaded-${DateTime.now().microsecondsSinceEpoch}',
+            title: 'Dáng từ ảnh mẫu',
+            description: 'Dáng được nhận diện từ ảnh đã chọn.',
+            category: PoseCategory.travel,
+            style: PoseStyle.standing,
+            customLandmarks: landmarks,
+          );
+        });
+        messenger.showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Đã phân tích dáng ảnh mẫu. Bật hướng dẫn AI để căn theo dáng.',
+            ),
+          ),
+        );
+      } catch (error) {
+        if (!mounted) return;
+        final message =
+            'Không thể phân tích dáng trong ảnh mẫu: $error. '
+            'Ảnh vẫn dùng được để căn thủ công.';
+        setState(() => _uploadedPoseError = message);
+        messenger.showSnackBar(SnackBar(content: Text(message)));
+      }
     } catch (error) {
       if (!mounted) return;
       messenger.showSnackBar(
@@ -248,6 +351,8 @@ class _CameraScreenState extends State<CameraScreen> {
     setState(() {
       _selectedPosePath = null;
       _selectedCatalogPose = null;
+      _selectedUploadedPose = null;
+      _uploadedPoseError = null;
       _ghostTransform = const GhostTransform();
     });
   }
@@ -262,6 +367,8 @@ class _CameraScreenState extends State<CameraScreen> {
     setState(() {
       _selectedCatalogPose = pose;
       _selectedPosePath = null;
+      _selectedUploadedPose = null;
+      _uploadedPoseError = null;
       _ghostTransform = const GhostTransform();
       _ghostRevision++;
       _poseMatchStreak = 0;
@@ -282,7 +389,7 @@ class _CameraScreenState extends State<CameraScreen> {
     if (!mounted || angle == null) return;
 
     PoseItem? pose;
-    for (final item in samplePoses) {
+    for (final item in [...samplePoses, ...StorageService.getCustomPoses()]) {
       if (item.id == angle.poseId) {
         pose = item;
         break;
@@ -295,6 +402,8 @@ class _CameraScreenState extends State<CameraScreen> {
     setState(() {
       _selectedCatalogPose = pose;
       _selectedPosePath = pose == null ? angle.ghostImagePath : null;
+      _selectedUploadedPose = null;
+      _uploadedPoseError = null;
       _ghostTransform = angle.ghostTransform;
       _ghostOpacity = angle.ghostOpacity;
       _gridOpacity = angle.gridOpacity;
@@ -463,19 +572,23 @@ class _CameraScreenState extends State<CameraScreen> {
     }
 
     final messenger = ScaffoldMessenger.of(context);
-    if (_selectedCatalogPose == null) {
+    final targetPose = _selectedCatalogPose ?? _selectedUploadedPose;
+    if (targetPose == null) {
       messenger.showSnackBar(
-        const SnackBar(
-          content: Text('Hãy chọn một dáng trong thư viện trước.'),
+        SnackBar(
+          content: Text(
+            _uploadedPoseError ??
+                'Hãy chọn một dáng trong thư viện hoặc ảnh mẫu có người.',
+          ),
         ),
       );
       return;
     }
-    if (!PoseMatchingService.supports(_selectedCatalogPose!)) {
+    if (!PoseMatchingService.supports(targetPose)) {
       messenger.showSnackBar(
         const SnackBar(
           content: Text(
-            'AI thử nghiệm hiện hỗ trợ dáng đứng và tay đặt bên hông.',
+            'AI hiện hỗ trợ dáng đứng, tay đặt bên hông và dáng tùy chỉnh.',
           ),
         ),
       );
@@ -517,6 +630,263 @@ class _CameraScreenState extends State<CameraScreen> {
     }
   }
 
+  void _scheduleZoom(double value) {
+    setState(() => _zoomLevel = value);
+    _zoomDebounce?.cancel();
+    _zoomDebounce = Timer(
+      const Duration(milliseconds: 100),
+      () => _applyZoom(value),
+    );
+  }
+
+  void _startCameraZoomGesture(ScaleStartDetails details) {
+    _pinchStartZoom = _zoomLevel;
+  }
+
+  void _updateCameraZoomGesture(ScaleUpdateDetails details) {
+    if (details.pointerCount < 2) return;
+    final zoom = (_pinchStartZoom * details.scale)
+        .clamp(_minZoomLevel, _maxZoomLevel)
+        .toDouble();
+    _scheduleZoom(zoom);
+  }
+
+  Future<void> _applyZoom(double value) async {
+    _zoomDebounce?.cancel();
+    final controller = _cameraService.controller;
+    if (controller == null || !controller.value.isInitialized) return;
+    try {
+      await controller.setZoomLevel(value);
+      if (!mounted) return;
+      setState(() {
+        _zoomLevel = value;
+        _appliedZoomLevel = value;
+      });
+    } catch (error) {
+      if (!mounted) return;
+      setState(() => _zoomLevel = _appliedZoomLevel);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Không thể thay đổi mức zoom: $error')),
+      );
+    }
+  }
+
+  Future<void> _focusAt(Offset localPosition) async {
+    final renderObject = _cameraPreviewKey.currentContext?.findRenderObject();
+    final controller = _cameraService.controller;
+    if (renderObject is! RenderBox ||
+        controller == null ||
+        !controller.value.isInitialized ||
+        renderObject.size.isEmpty) {
+      return;
+    }
+
+    final displayPoint = Offset(
+      (localPosition.dx / renderObject.size.width).clamp(0.0, 1.0).toDouble(),
+      (localPosition.dy / renderObject.size.height).clamp(0.0, 1.0).toDouble(),
+    );
+    final cameraPoint =
+        controller.description.lensDirection == CameraLensDirection.front
+        ? Offset(1 - displayPoint.dx, displayPoint.dy)
+        : displayPoint;
+    _focusIndicatorTimer?.cancel();
+    setState(() {
+      _focusPoint = displayPoint;
+      _isFocusIndicatorVisible = true;
+    });
+    _focusIndicatorTimer = Timer(const Duration(seconds: 2), () {
+      if (mounted) setState(() => _isFocusIndicatorVisible = false);
+    });
+
+    final errors = <String>[];
+    try {
+      await controller.setFocusPoint(cameraPoint);
+    } catch (error) {
+      errors.add('lấy nét: $error');
+    }
+    try {
+      await controller.setExposurePoint(cameraPoint);
+    } catch (error) {
+      errors.add('đo sáng: $error');
+    }
+    if (errors.isNotEmpty && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Không thể ${errors.join(' hoặc ')} tại điểm chạm.'),
+        ),
+      );
+    }
+  }
+
+  void _scheduleExposureOffset(double value) {
+    final boundedValue = value
+        .clamp(_minExposureOffset, _maxExposureOffset)
+        .toDouble();
+    setState(() => _exposureOffset = boundedValue);
+    _exposureDebounce?.cancel();
+    _exposureDebounce = Timer(
+      const Duration(milliseconds: 100),
+      () => _applyExposureOffset(boundedValue),
+    );
+  }
+
+  Future<void> _applyExposureOffset(double value) async {
+    _exposureDebounce?.cancel();
+    final controller = _cameraService.controller;
+    if (controller == null || !controller.value.isInitialized) return;
+    try {
+      final appliedValue = await controller.setExposureOffset(value);
+      if (!mounted) return;
+      setState(() {
+        _exposureOffset = appliedValue;
+        _appliedExposureOffset = appliedValue;
+        _exposureError = null;
+      });
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _exposureOffset = _appliedExposureOffset;
+        _exposureError = 'Không thể thay đổi phơi sáng: $error';
+      });
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(_exposureError!)));
+    }
+  }
+
+  Widget _buildExposureControl() {
+    if (_maxExposureOffset <= _minExposureOffset) {
+      return Tooltip(
+        message: _exposureError ?? 'Camera không hỗ trợ điều chỉnh phơi sáng.',
+        child: const Icon(Icons.exposure, color: Colors.white70),
+      );
+    }
+
+    return Container(
+      width: 52,
+      padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
+      decoration: BoxDecoration(
+        color: Colors.black54,
+        borderRadius: BorderRadius.circular(24),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(Icons.wb_sunny_outlined, color: Colors.white70, size: 18),
+          const SizedBox(height: 4),
+          RotatedBox(
+            quarterTurns: 3,
+            child: SizedBox(
+              width: 136,
+              height: 40,
+              child: Slider(
+                key: const ValueKey('camera-exposure-slider'),
+                min: _minExposureOffset,
+                max: _maxExposureOffset,
+                value: _exposureOffset
+                    .clamp(_minExposureOffset, _maxExposureOffset)
+                    .toDouble(),
+                activeColor: Colors.yellowAccent,
+                onChanged: _scheduleExposureOffset,
+                onChangeEnd: _applyExposureOffset,
+              ),
+            ),
+          ),
+          Text(
+            '${_exposureOffset.toStringAsFixed(1)} EV',
+            style: const TextStyle(color: Colors.white, fontSize: 10),
+          ),
+          IconButton(
+            key: const ValueKey('camera-exposure-reset'),
+            tooltip: 'Đặt phơi sáng về 0 EV',
+            visualDensity: VisualDensity.compact,
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints.tightFor(width: 28, height: 28),
+            onPressed: () => _scheduleExposureOffset(
+              0.clamp(_minExposureOffset, _maxExposureOffset).toDouble(),
+            ),
+            icon: const Icon(
+              Icons.restart_alt,
+              color: Colors.white70,
+              size: 18,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildFocusIndicator(Size size) {
+    final point = _focusPoint;
+    if (point == null) {
+      return const SizedBox.shrink();
+    }
+    return Positioned(
+      left: (point.dx * size.width - 24)
+          .clamp(0.0, size.width > 48 ? size.width - 48 : 0.0)
+          .toDouble(),
+      top: (point.dy * size.height - 24)
+          .clamp(0.0, size.height > 48 ? size.height - 48 : 0.0)
+          .toDouble(),
+      child: IgnorePointer(
+        child: AnimatedOpacity(
+          opacity: _isFocusIndicatorVisible ? 1 : 0,
+          duration: const Duration(milliseconds: 180),
+          child: Container(
+            width: 48,
+            height: 48,
+            decoration: BoxDecoration(
+              border: Border.all(color: Colors.yellowAccent, width: 1.5),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: const Icon(
+              Icons.center_focus_weak,
+              color: Colors.yellowAccent,
+              size: 30,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildZoomControl() {
+    if (_maxZoomLevel <= _minZoomLevel) return const SizedBox.shrink();
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 32, vertical: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
+      decoration: BoxDecoration(
+        color: Colors.black54,
+        borderRadius: BorderRadius.circular(24),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.zoom_out, color: Colors.white70),
+          Expanded(
+            child: Slider(
+              key: const ValueKey('camera-zoom-slider'),
+              min: _minZoomLevel,
+              max: _maxZoomLevel,
+              value: _zoomLevel.clamp(_minZoomLevel, _maxZoomLevel),
+              activeColor: Colors.yellowAccent,
+              onChanged: _scheduleZoom,
+              onChangeEnd: _applyZoom,
+            ),
+          ),
+          Text(
+            '${_zoomLevel.toStringAsFixed(1)}x',
+            style: const TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(width: 4),
+          const Icon(Icons.zoom_in, color: Colors.white70),
+        ],
+      ),
+    );
+  }
+
   Future<void> _stopPoseAssist() async {
     final controller = _cameraService.controller;
     if (mounted) {
@@ -540,7 +910,8 @@ class _CameraScreenState extends State<CameraScreen> {
     CameraImage image,
     CameraController controller,
   ) async {
-    if (!_isPoseAssistEnabled || _selectedCatalogPose == null) return;
+    final targetPose = _selectedCatalogPose ?? _selectedUploadedPose;
+    if (!_isPoseAssistEnabled || targetPose == null) return;
     try {
       final frame = await _poseDetectionService.processImage(
         image,
@@ -548,10 +919,7 @@ class _CameraScreenState extends State<CameraScreen> {
         controller.value.deviceOrientation,
       );
       if (!mounted || !_isPoseAssistEnabled || frame == null) return;
-      final result = PoseMatchingService.evaluate(
-        frame.pose,
-        _selectedCatalogPose!,
-      );
+      final result = PoseMatchingService.evaluate(frame.pose, targetPose);
       setState(() {
         _detectedPoseFrame = frame;
         _poseMatchResult = result;
@@ -657,67 +1025,123 @@ class _CameraScreenState extends State<CameraScreen> {
             ? cameraAspectRatio
             : 1 / cameraAspectRatio;
 
+        final hasGhostOverlay =
+            _selectedPosePath != null || _selectedCatalogPose != null;
         return Center(
           child: AspectRatio(
             aspectRatio: frameAspectRatio,
-            child: Stack(
-              fit: StackFit.expand,
-              children: [
-                CameraPreview(controller),
-                if (!_isCapturing) ...[
-                  SmartGridWidget(
-                    showGrid: _isGridVisible,
-                    gridType: _gridType,
-                    opacity: _gridOpacity,
-                  ),
-                  if (_selectedPosePath != null || _selectedCatalogPose != null)
-                    GhostOverlayWidget(
-                      key: ValueKey(
-                        '${_selectedCatalogPose?.id ?? _selectedPosePath}-$_ghostRevision',
-                      ),
-                      imagePath: _selectedPosePath,
-                      pose: _selectedCatalogPose,
-                      opacity: _ghostOpacity,
-                      isAsset: false,
-                      initialTransform: _ghostTransform,
-                      onTransformEnd: (transform) {
-                        _ghostTransform = transform;
-                      },
-                    ),
-                  if (_isPoseAssistEnabled &&
-                      _detectedPoseFrame?.pose != null &&
-                      _detectedPoseFrame != null)
-                    Positioned.fill(
-                      child: PoseSkeletonOverlay(
-                        pose: _detectedPoseFrame!.pose!,
-                        imageSize: _detectedPoseFrame!.imageSize,
-                        rotation: _detectedPoseFrame!.rotation,
-                        lensDirection: _detectedPoseFrame!.lensDirection,
-                        isMatched: _poseMatchStreak >= 3,
-                      ),
-                    ),
-                  if (_selectedPosePath != null || _selectedCatalogPose != null)
-                    Positioned(
-                      top: 8,
-                      right: 8,
-                      child: Row(
-                        children: [
-                          _GhostActionButton(
-                            tooltip: 'Đặt lại vị trí ảnh mẫu',
-                            icon: Icons.restart_alt,
-                            onPressed: _resetGhostTransform,
+            child: GestureDetector(
+              key: _cameraPreviewKey,
+              behavior: HitTestBehavior.opaque,
+              onTapUp: (details) => _focusAt(details.localPosition),
+              onScaleStart: hasGhostOverlay ? null : _startCameraZoomGesture,
+              onScaleUpdate: hasGhostOverlay ? null : _updateCameraZoomGesture,
+              child: LayoutBuilder(
+                builder: (context, previewConstraints) {
+                  final maxExposureTop = (previewConstraints.maxHeight - 160)
+                      .clamp(8.0, double.infinity)
+                      .toDouble();
+                  return Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      CameraPreview(controller),
+                      if (!_isCapturing) ...[
+                        SmartGridWidget(
+                          showGrid: _isGridVisible,
+                          gridType: _gridType,
+                          opacity: _gridOpacity,
+                        ),
+                        if (_selectedPosePath != null ||
+                            _selectedCatalogPose != null)
+                          GhostOverlayWidget(
+                            key: ValueKey(
+                              '${_selectedCatalogPose?.id ?? _selectedPosePath}-$_ghostRevision',
+                            ),
+                            imagePath: _selectedPosePath,
+                            pose: _selectedCatalogPose,
+                            opacity: _ghostOpacity,
+                            isAsset: false,
+                            initialTransform: _ghostTransform,
+                            onCameraTap: _focusAt,
+                            onCameraScaleStart: _isCameraPinchZoomEnabled
+                                ? _startCameraZoomGesture
+                                : null,
+                            onCameraScaleUpdate: _isCameraPinchZoomEnabled
+                                ? _updateCameraZoomGesture
+                                : null,
+                            onTransformEnd: (transform) {
+                              _ghostTransform = transform;
+                            },
                           ),
-                          const SizedBox(width: 8),
-                          _GhostActionButton(
-                            tooltip: 'Gỡ ảnh mẫu',
-                            icon: Icons.close,
-                            onPressed: _removeGhostImage,
+                        if (_isPoseAssistEnabled &&
+                            _detectedPoseFrame?.pose != null &&
+                            _detectedPoseFrame != null)
+                          Positioned.fill(
+                            child: PoseSkeletonOverlay(
+                              pose: _detectedPoseFrame!.pose!,
+                              imageSize: _detectedPoseFrame!.imageSize,
+                              rotation: _detectedPoseFrame!.rotation,
+                              lensDirection: _detectedPoseFrame!.lensDirection,
+                              isMatched: _poseMatchStreak >= 3,
+                            ),
                           ),
-                        ],
-                      ),
-                    ),
-                ],
-              ],
+                        if (_selectedPosePath != null ||
+                            _selectedCatalogPose != null)
+                          Positioned(
+                            top: 8,
+                            right: 8,
+                            child: Row(
+                              children: [
+                                _GhostActionButton(
+                                  tooltip: _isCameraPinchZoomEnabled
+                                      ? 'Chuyển pinch sang chỉnh ảnh mẫu'
+                                      : 'Chuyển pinch sang zoom camera',
+                                  icon: _isCameraPinchZoomEnabled
+                                      ? Icons.zoom_in
+                                      : Icons.camera_alt_outlined,
+                                  onPressed: () => setState(
+                                    () => _isCameraPinchZoomEnabled =
+                                        !_isCameraPinchZoomEnabled,
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                _GhostActionButton(
+                                  tooltip: 'Đặt lại vị trí ảnh mẫu',
+                                  icon: Icons.restart_alt,
+                                  onPressed: _resetGhostTransform,
+                                ),
+                                const SizedBox(width: 8),
+                                _GhostActionButton(
+                                  tooltip: 'Gỡ ảnh mẫu',
+                                  icon: Icons.close,
+                                  onPressed: _removeGhostImage,
+                                ),
+                              ],
+                            ),
+                          ),
+                        if (_focusPoint != null)
+                          Positioned(
+                            top:
+                                (_focusPoint!.dy *
+                                            previewConstraints.maxHeight -
+                                        80)
+                                    .clamp(8.0, maxExposureTop)
+                                    .toDouble(),
+                            left: _focusPoint!.dx < 0.5 ? null : 8.0,
+                            right: _focusPoint!.dx < 0.5 ? 8.0 : null,
+                            child: _buildExposureControl(),
+                          ),
+                        _buildFocusIndicator(
+                          Size(
+                            previewConstraints.maxWidth,
+                            previewConstraints.maxHeight,
+                          ),
+                        ),
+                      ],
+                    ],
+                  );
+                },
+              ),
             ),
           ),
         );
@@ -860,6 +1284,8 @@ class _CameraScreenState extends State<CameraScreen> {
 
                 if (!_isCapturing && _isPoseAssistEnabled)
                   _buildPoseAssistStatus(),
+
+                if (!_isCapturing) _buildZoomControl(),
 
                 // Footer nút chụp ảnh và chọn dáng
                 if (!_isCapturing)

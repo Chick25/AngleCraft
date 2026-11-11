@@ -21,9 +21,38 @@ class PoseMatchResult {
 
 class PoseMatchingService {
   static const _confidenceThreshold = 0.35;
+  static const _bodyLandmarks = [
+    PoseLandmarkType.leftShoulder,
+    PoseLandmarkType.rightShoulder,
+    PoseLandmarkType.leftElbow,
+    PoseLandmarkType.rightElbow,
+    PoseLandmarkType.leftWrist,
+    PoseLandmarkType.rightWrist,
+    PoseLandmarkType.leftHip,
+    PoseLandmarkType.rightHip,
+    PoseLandmarkType.leftKnee,
+    PoseLandmarkType.rightKnee,
+    PoseLandmarkType.leftAnkle,
+    PoseLandmarkType.rightAnkle,
+  ];
 
   static bool supports(PoseItem pose) =>
-      pose.style == PoseStyle.standing || pose.style == PoseStyle.handOnHip;
+      pose.isCustom ||
+      pose.style == PoseStyle.standing ||
+      pose.style == PoseStyle.handOnHip;
+
+  static Map<String, Offset>? customLandmarksFromPose(Pose pose) {
+    final points = <String, Offset>{};
+    for (final type in _bodyLandmarks) {
+      final landmark = pose.landmarks[type];
+      if (landmark == null || landmark.likelihood < _confidenceThreshold) {
+        continue;
+      }
+      points[type.name] = Offset(landmark.x, landmark.y);
+    }
+    if (points.length < 6) return null;
+    return _normalizePoints(points);
+  }
 
   static PoseMatchResult evaluate(Pose? pose, PoseItem target) {
     if (!supports(target)) {
@@ -43,6 +72,8 @@ class PoseMatchingService {
       );
     }
 
+    if (target.isCustom) return _evaluateCustom(pose, target);
+
     final landmarks = pose.landmarks;
     final leftElbow = _jointAngle(
       landmarks,
@@ -61,6 +92,67 @@ class PoseMatchingService {
       return _evaluateHandOnHip(landmarks, leftElbow, rightElbow);
     }
     return _evaluateStanding(landmarks, leftElbow, rightElbow);
+  }
+
+  static PoseMatchResult _evaluateCustom(Pose pose, PoseItem target) {
+    final targetLandmarks = target.customLandmarks!;
+    final matchedPoints = <String, (Offset, Offset)>{};
+    for (final entry in targetLandmarks.entries) {
+      final type = PoseLandmarkType.values.byName(entry.key);
+      final detected = pose.landmarks[type];
+      if (detected == null || detected.likelihood < _confidenceThreshold) {
+        continue;
+      }
+      matchedPoints[entry.key] = (entry.value, Offset(detected.x, detected.y));
+    }
+
+    if (matchedPoints.length < 6) {
+      return const PoseMatchResult(
+        isSupported: true,
+        isMatched: false,
+        score: 0,
+        feedback: 'Đưa toàn thân vào khung hình để căn dáng tùy chỉnh.',
+      );
+    }
+
+    final targetPoints = _normalizePoints({
+      for (final entry in matchedPoints.entries) entry.key: entry.value.$1,
+    });
+    final detectedPoints = _normalizePoints({
+      for (final entry in matchedPoints.entries) entry.key: entry.value.$2,
+    });
+    final meanDistance =
+        matchedPoints.keys
+            .map((key) => (targetPoints[key]! - detectedPoints[key]!).distance)
+            .reduce((first, second) => first + second) /
+        matchedPoints.length;
+    final score = (100 * (1 - meanDistance / 1.4142)).round().clamp(0, 100);
+    final isMatched = meanDistance <= 0.22;
+
+    return PoseMatchResult(
+      isSupported: true,
+      isMatched: isMatched,
+      score: score,
+      feedback: isMatched
+          ? 'Dáng gần khớp, hãy giữ ổn định!'
+          : 'Điều chỉnh tay và chân theo khung dáng mờ.',
+    );
+  }
+
+  static Map<String, Offset> _normalizePoints(Map<String, Offset> points) {
+    final minX = points.values.map((point) => point.dx).reduce(math.min);
+    final maxX = points.values.map((point) => point.dx).reduce(math.max);
+    final minY = points.values.map((point) => point.dy).reduce(math.min);
+    final maxY = points.values.map((point) => point.dy).reduce(math.max);
+    final width = maxX - minX;
+    final height = maxY - minY;
+    return {
+      for (final entry in points.entries)
+        entry.key: Offset(
+          width == 0 ? 0.5 : (entry.value.dx - minX) / width,
+          height == 0 ? 0.5 : (entry.value.dy - minY) / height,
+        ),
+    };
   }
 
   static PoseMatchResult _evaluateStanding(

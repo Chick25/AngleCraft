@@ -8,13 +8,17 @@ On Android, choose a built-in **standing** or **hand-on-hip** pose, then tap
 the focus icon to enable on-device pose guidance. A yellow skeleton means the
 pose is still being adjusted; green means the main joint checks have matched
 for several processed frames. The score is a heuristic guide, not a guarantee
-of an identical pose. Other catalog styles and gallery images remain available
-for manual ghost-overlay alignment.
+of an identical pose. Custom poses are also supported. When you select a photo
+from the device, AngleCraft detects its body joints locally and uses them as
+the target; photos without enough visible body joints remain available for
+manual ghost-overlay alignment. Other built-in catalog styles are currently
+manual guides only.
 
-Pose frames are processed locally with Google ML Kit. Frames are skipped while
-the detector is busy to avoid building up latency. This feature is currently
-Android-only; the existing camera and manual overlay continue to work on other
-platforms.
+Camera frames and reference photos are processed locally with Google ML Kit.
+The Android camera stream uses NV21, the format required by the ML Kit plugin.
+Frames are skipped while the detector is busy to avoid building up latency.
+This feature is currently Android-only; the existing camera and manual overlay
+continue to work on other platforms.
 
 ## Angle Vault
 
@@ -34,6 +38,21 @@ app's local photo collection and exported to the device photo library. Open the
 photo-library icon on the camera to browse images, pinch to zoom, share, or
 delete the app's local copy of a capture. A copy already exported to the
 device's photo library is not removed by deleting it from AngleCraft.
+
+## Custom Pose Guide & Camera Zoom
+
+Open the pose catalog and tap **+** to create a lightweight custom pose. Choose
+a context suggestion, drag the skeleton joints, name the pose, and save it
+locally. Only normalized joint coordinates and text are stored; no reference
+photo is needed. Custom poses can be overlaid and compared with the live pose
+guide on Android. Context tips are user-selected guidance, not automatic
+recognition of objects such as railings. Pinch the live camera preview to zoom,
+or use the zoom slider for precise adjustments. When a guide is selected, its
+camera/guide icon switches pinch gestures between camera zoom and guide
+transforms. Tap the preview to set the focus and exposure points; when
+supported by the camera, a nearby vertical EV control lets you brighten or
+darken the live view and reset exposure to 0.
+
 The photo viewer also provides lightweight tone and lighting previews using
 Flutter's built-in color filters; previews do not modify the original or
 shared image.

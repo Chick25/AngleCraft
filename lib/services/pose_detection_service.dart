@@ -1,5 +1,3 @@
-import 'dart:typed_data';
-
 import 'package:camera/camera.dart';
 import 'package:flutter/services.dart';
 import 'package:google_mlkit_pose_detection/google_mlkit_pose_detection.dart';
@@ -42,6 +40,34 @@ class PoseDetectionService {
     }
   }
 
+  Future<Pose?> detectPoseInFile(String filePath) async {
+    if (_isClosed) {
+      throw StateError('Bộ nhận diện dáng đã được đóng.');
+    }
+    if (_activeProcessing != null) {
+      throw StateError('Bộ nhận diện dáng đang xử lý khung hình camera.');
+    }
+
+    final processing = _processFile(filePath);
+    _activeProcessing = processing.then<void>(
+      (_) {},
+      onError: (Object error, StackTrace stackTrace) {},
+    );
+    try {
+      return await processing;
+    } finally {
+      _activeProcessing = null;
+    }
+  }
+
+  Future<Pose?> _processFile(String filePath) async {
+    final detector = _detector ??= _createDetector();
+    final poses = await detector.processImage(
+      InputImage.fromFilePath(filePath),
+    );
+    return poses.isEmpty ? null : poses.first;
+  }
+
   Future<DetectedPoseFrame> _processImage(
     CameraImage image,
     CameraDescription camera,
@@ -52,33 +78,26 @@ class PoseDetectionService {
     }
 
     final format = InputImageFormatValue.fromRawValue(image.format.raw);
-    if (format == null) {
+    if (format == null ||
+        format != InputImageFormat.nv21 ||
+        image.planes.length != 1) {
       throw UnsupportedError(
-        'Định dạng khung hình camera không được ML Kit hỗ trợ.',
+        'Khung hình Android phải ở định dạng NV21 một mặt phẳng để nhận diện.',
       );
     }
 
     final rotation = _rotationForCamera(camera, deviceOrientation);
-    final bytes = BytesBuilder(copy: false);
-    for (final plane in image.planes) {
-      bytes.add(plane.bytes);
-    }
-
+    final plane = image.planes.first;
     final inputImage = InputImage.fromBytes(
-      bytes: bytes.takeBytes(),
+      bytes: plane.bytes,
       metadata: InputImageMetadata(
         size: Size(image.width.toDouble(), image.height.toDouble()),
         rotation: rotation,
         format: format,
-        bytesPerRow: image.planes.first.bytesPerRow,
+        bytesPerRow: plane.bytesPerRow,
       ),
     );
-    final detector = _detector ??= PoseDetector(
-      options: PoseDetectorOptions(
-        model: PoseDetectionModel.base,
-        mode: PoseDetectionMode.stream,
-      ),
-    );
+    final detector = _detector ??= _createDetector();
     final poses = await detector.processImage(inputImage);
 
     return DetectedPoseFrame(
@@ -88,6 +107,13 @@ class PoseDetectionService {
       lensDirection: camera.lensDirection,
     );
   }
+
+  PoseDetector _createDetector() => PoseDetector(
+    options: PoseDetectorOptions(
+      model: PoseDetectionModel.base,
+      mode: PoseDetectionMode.stream,
+    ),
+  );
 
   InputImageRotation _rotationForCamera(
     CameraDescription camera,

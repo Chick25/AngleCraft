@@ -12,6 +12,9 @@ class GhostOverlayWidget extends StatefulWidget {
   final bool isAsset;
   final PoseItem? pose;
   final GhostTransform initialTransform;
+  final ValueChanged<Offset>? onCameraTap;
+  final GestureScaleStartCallback? onCameraScaleStart;
+  final GestureScaleUpdateCallback? onCameraScaleUpdate;
   final ValueChanged<GhostTransform>? onTransformEnd;
 
   const GhostOverlayWidget({
@@ -21,6 +24,9 @@ class GhostOverlayWidget extends StatefulWidget {
     this.isAsset = true,
     this.pose,
     this.initialTransform = const GhostTransform(),
+    this.onCameraTap,
+    this.onCameraScaleStart,
+    this.onCameraScaleUpdate,
     this.onTransformEnd,
   });
 
@@ -73,11 +79,22 @@ class _GhostOverlayWidgetState extends State<GhostOverlayWidget> {
         return GestureDetector(
           key: const ValueKey('ghostOverlayGesture'),
           behavior: HitTestBehavior.translucent,
-          onScaleStart: (_) {
+          onTapUp: widget.onCameraTap == null
+              ? null
+              : (details) => widget.onCameraTap!(details.localPosition),
+          onScaleStart: (details) {
             _startingScale = _scale;
             _startingRotation = _rotation;
+            widget.onCameraScaleStart?.call(details);
           },
           onScaleUpdate: (details) {
+            if (details.pointerCount >= 2) {
+              final onCameraScaleUpdate = widget.onCameraScaleUpdate;
+              if (onCameraScaleUpdate != null) {
+                onCameraScaleUpdate(details);
+                return;
+              }
+            }
             setState(() {
               _scale = (_startingScale * details.scale).clamp(0.5, 4.0);
               _rotation = _startingRotation + details.rotation;

@@ -7,10 +7,12 @@ import '../models/pose_item.dart';
 class PoseSilhouettePainter extends CustomPainter {
   final PoseItem pose;
   final Color color;
+  final String? highlightedJoint;
 
   const PoseSilhouettePainter({
     required this.pose,
     this.color = Colors.yellowAccent,
+    this.highlightedJoint,
   });
 
   @override
@@ -31,6 +33,13 @@ class PoseSilhouettePainter extends CustomPainter {
       ..strokeWidth = 2.4
       ..strokeCap = StrokeCap.round
       ..strokeJoin = StrokeJoin.round;
+
+    final customLandmarks = pose.customLandmarks;
+    if (customLandmarks != null) {
+      _drawCustomPose(canvas, paint, customLandmarks);
+      canvas.restore();
+      return;
+    }
 
     switch (pose.style) {
       case PoseStyle.couple:
@@ -90,6 +99,51 @@ class PoseSilhouettePainter extends CustomPainter {
     canvas.restore();
   }
 
+  void _drawCustomPose(
+    Canvas canvas,
+    Paint paint,
+    Map<String, Offset> landmarks,
+  ) {
+    const bones = [
+      ('nose', 'leftShoulder'),
+      ('nose', 'rightShoulder'),
+      ('leftShoulder', 'rightShoulder'),
+      ('leftShoulder', 'leftElbow'),
+      ('leftElbow', 'leftWrist'),
+      ('rightShoulder', 'rightElbow'),
+      ('rightElbow', 'rightWrist'),
+      ('leftShoulder', 'leftHip'),
+      ('rightShoulder', 'rightHip'),
+      ('leftHip', 'rightHip'),
+      ('leftHip', 'leftKnee'),
+      ('leftKnee', 'leftAnkle'),
+      ('rightHip', 'rightKnee'),
+      ('rightKnee', 'rightAnkle'),
+    ];
+
+    Offset toCanvas(Offset point) => Offset(point.dx * 100, point.dy * 150);
+    for (final (startName, endName) in bones) {
+      final start = landmarks[startName];
+      final end = landmarks[endName];
+      if (start != null && end != null) {
+        canvas.drawLine(toCanvas(start), toCanvas(end), paint);
+      }
+    }
+    for (final entry in landmarks.entries) {
+      final jointPaint = Paint()
+        ..color = color
+        ..style = entry.key == highlightedJoint
+            ? PaintingStyle.fill
+            : PaintingStyle.stroke
+        ..strokeWidth = 1.8;
+      canvas.drawCircle(toCanvas(entry.value), 2.8, jointPaint);
+    }
+    final nose = landmarks['nose'];
+    if (nose != null) {
+      canvas.drawCircle(toCanvas(nose), 5, paint);
+    }
+  }
+
   void _drawPerson(
     Canvas canvas,
     Paint paint, {
@@ -122,19 +176,31 @@ class PoseSilhouettePainter extends CustomPainter {
 
     if (sitting) {
       canvas
-        ..drawLine(leftShoulder, Offset(centerX - 14 * scale, top + 39 * scale), paint)
+        ..drawLine(
+          leftShoulder,
+          Offset(centerX - 14 * scale, top + 39 * scale),
+          paint,
+        )
         ..drawLine(
           Offset(centerX - 14 * scale, top + 39 * scale),
           Offset(centerX - 4 * scale, top + 47 * scale),
           paint,
         )
-        ..drawLine(rightShoulder, Offset(centerX + 15 * scale, top + 36 * scale), paint)
+        ..drawLine(
+          rightShoulder,
+          Offset(centerX + 15 * scale, top + 36 * scale),
+          paint,
+        )
         ..drawLine(
           Offset(centerX + 15 * scale, top + 36 * scale),
           Offset(centerX + 5 * scale, top + 47 * scale),
           paint,
         )
-        ..drawLine(leftHip, Offset(centerX - 18 * scale, top + 65 * scale), paint)
+        ..drawLine(
+          leftHip,
+          Offset(centerX - 18 * scale, top + 65 * scale),
+          paint,
+        )
         ..drawLine(
           Offset(centerX - 18 * scale, top + 65 * scale),
           Offset(centerX + 12 * scale, top + 65 * scale),
@@ -150,7 +216,11 @@ class PoseSilhouettePainter extends CustomPainter {
           Offset(centerX + 7 * scale, top + 82 * scale),
           paint,
         )
-        ..drawLine(rightHip, Offset(centerX + 13 * scale, top + 64 * scale), paint)
+        ..drawLine(
+          rightHip,
+          Offset(centerX + 13 * scale, top + 64 * scale),
+          paint,
+        )
         ..drawLine(
           Offset(centerX + 13 * scale, top + 64 * scale),
           Offset(centerX - 4 * scale, top + 76 * scale),
@@ -176,7 +246,11 @@ class PoseSilhouettePainter extends CustomPainter {
           Offset(centerX - 9 * scale, top + 51 * scale),
           paint,
         )
-        ..drawLine(rightShoulder, Offset(centerX + 16 * scale, top + 39 * scale), paint)
+        ..drawLine(
+          rightShoulder,
+          Offset(centerX + 16 * scale, top + 39 * scale),
+          paint,
+        )
         ..drawLine(
           Offset(centerX + 16 * scale, top + 39 * scale),
           Offset(centerX + 7 * scale, top + 49 * scale),
@@ -208,13 +282,21 @@ class PoseSilhouettePainter extends CustomPainter {
 
     if (walking) {
       canvas
-        ..drawLine(leftHip, Offset(centerX - 15 * scale, top + 70 * scale), paint)
+        ..drawLine(
+          leftHip,
+          Offset(centerX - 15 * scale, top + 70 * scale),
+          paint,
+        )
         ..drawLine(
           Offset(centerX - 15 * scale, top + 70 * scale),
           Offset(centerX - 24 * scale, top + 91 * scale),
           paint,
         )
-        ..drawLine(rightHip, Offset(centerX + 16 * scale, top + 68 * scale), paint)
+        ..drawLine(
+          rightHip,
+          Offset(centerX + 16 * scale, top + 68 * scale),
+          paint,
+        )
         ..drawLine(
           Offset(centerX + 16 * scale, top + 68 * scale),
           Offset(centerX + 9 * scale, top + 91 * scale),
@@ -222,13 +304,21 @@ class PoseSilhouettePainter extends CustomPainter {
         );
     } else {
       canvas
-        ..drawLine(leftHip, Offset(centerX - 8 * scale, top + 74 * scale), paint)
+        ..drawLine(
+          leftHip,
+          Offset(centerX - 8 * scale, top + 74 * scale),
+          paint,
+        )
         ..drawLine(
           Offset(centerX - 8 * scale, top + 74 * scale),
           Offset(centerX - 10 * scale, top + 96 * scale),
           paint,
         )
-        ..drawLine(rightHip, Offset(centerX + 8 * scale, top + 74 * scale), paint)
+        ..drawLine(
+          rightHip,
+          Offset(centerX + 8 * scale, top + 74 * scale),
+          paint,
+        )
         ..drawLine(
           Offset(centerX + 8 * scale, top + 74 * scale),
           Offset(centerX + 10 * scale, top + 96 * scale),
@@ -249,5 +339,7 @@ class PoseSilhouettePainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant PoseSilhouettePainter oldDelegate) =>
-      oldDelegate.pose != pose || oldDelegate.color != color;
+      oldDelegate.pose != pose ||
+      oldDelegate.color != color ||
+      oldDelegate.highlightedJoint != highlightedJoint;
 }
