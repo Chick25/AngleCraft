@@ -42,17 +42,18 @@ device's photo library is not removed by deleting it from AngleCraft.
 ## Custom Pose Guide & Camera Zoom
 
 Open the pose catalog and tap **+** to create a lightweight custom pose. Choose
-a context suggestion, drag the skeleton joints, name the pose, and save it
-locally. Only normalized joint coordinates and text are stored; no reference
-photo is needed. Custom poses can be overlaid and compared with the live pose
-guide on Android. Context tips are user-selected guidance, not automatic
-recognition of objects such as railings. Pinch the live camera preview to zoom,
-or use the zoom slider for precise adjustments. When a guide is selected, its
-camera/guide icon switches pinch gestures between camera zoom and guide
-transforms. Tap the preview to set focus; double-tap to show or hide the
-exposure control. When supported by the camera, its vertical EV slider lets you
-brighten or darken the live view and reset exposure to 0. Available EV values
-depend on the camera hardware.
+a context suggestion, drag joints on the vector silhouette, name the pose, and
+save it locally. Only normalized joint coordinates and text are stored; no
+reference photo is needed. Custom poses can be overlaid and compared with the
+live pose guide on Android. Context tips are user-selected guidance, not automatic
+recognition of objects such as railings. Pinch the live camera preview to zoom;
+the compact zoom button shows the current magnification and opens a slider for
+precise adjustment. When a guide is selected, use the labeled camera/guide
+button in the toolbar to switch whether pinching controls camera zoom or guide size. Tap the
+preview to set focus; double-tap to show or hide the exposure control. When
+supported by the camera, its vertical EV slider lets you brighten or darken the
+live view and reset exposure to 0. Available EV values depend on the camera
+hardware.
 
 The photo viewer also provides lightweight tone and lighting previews using
 Flutter's built-in color filters; previews do not modify the original or

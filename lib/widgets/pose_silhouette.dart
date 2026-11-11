@@ -104,43 +104,118 @@ class PoseSilhouettePainter extends CustomPainter {
     Paint paint,
     Map<String, Offset> landmarks,
   ) {
-    const bones = [
-      ('nose', 'leftShoulder'),
-      ('nose', 'rightShoulder'),
-      ('leftShoulder', 'rightShoulder'),
-      ('leftShoulder', 'leftElbow'),
-      ('leftElbow', 'leftWrist'),
-      ('rightShoulder', 'rightElbow'),
-      ('rightElbow', 'rightWrist'),
-      ('leftShoulder', 'leftHip'),
-      ('rightShoulder', 'rightHip'),
-      ('leftHip', 'rightHip'),
-      ('leftHip', 'leftKnee'),
-      ('leftKnee', 'leftAnkle'),
-      ('rightHip', 'rightKnee'),
-      ('rightKnee', 'rightAnkle'),
-    ];
-
     Offset toCanvas(Offset point) => Offset(point.dx * 100, point.dy * 150);
-    for (final (startName, endName) in bones) {
-      final start = landmarks[startName];
-      final end = landmarks[endName];
-      if (start != null && end != null) {
-        canvas.drawLine(toCanvas(start), toCanvas(end), paint);
+    Offset? joint(String name) {
+      final point = landmarks[name];
+      return point == null ? null : toCanvas(point);
+    }
+
+    final armPaint = Paint()
+      ..color = color
+      ..strokeWidth = 6.5
+      ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round;
+    final legPaint = Paint()
+      ..color = color.withValues(alpha: 0.82)
+      ..strokeWidth = 8
+      ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round;
+    final torsoPaint = Paint()
+      ..color = color.withValues(alpha: 0.42)
+      ..style = PaintingStyle.fill;
+
+    final leftShoulder = joint('leftShoulder');
+    final rightShoulder = joint('rightShoulder');
+    final leftHip = joint('leftHip');
+    final rightHip = joint('rightHip');
+    final shoulders = [leftShoulder, rightShoulder];
+    final hips = [leftHip, rightHip];
+    if (shoulders.every((point) => point != null) &&
+        hips.every((point) => point != null)) {
+      final leftTop = leftShoulder!;
+      final rightTop = rightShoulder!;
+      final leftBottom = leftHip!;
+      final rightBottom = rightHip!;
+      final torso = Path()
+        ..moveTo(leftTop.dx, leftTop.dy)
+        ..quadraticBezierTo(
+          (leftTop.dx + rightTop.dx) / 2,
+          (leftTop.dy + rightTop.dy) / 2 - 3,
+          rightTop.dx,
+          rightTop.dy,
+        )
+        ..lineTo(rightBottom.dx + 2, rightBottom.dy)
+        ..quadraticBezierTo(
+          (leftBottom.dx + rightBottom.dx) / 2,
+          (leftBottom.dy + rightBottom.dy) / 2 + 2,
+          leftBottom.dx - 2,
+          leftBottom.dy,
+        )
+        ..close();
+      canvas.drawPath(torso, torsoPaint);
+    }
+
+    void drawLimb(List<String> names, Paint limbPaint) {
+      final points = names.map(joint).toList();
+      for (var index = 0; index < points.length - 1; index++) {
+        final start = points[index];
+        final end = points[index + 1];
+        if (start != null && end != null) {
+          canvas.drawLine(start, end, limbPaint);
+        }
+      }
+      for (final point in points.skip(1).take(points.length - 2)) {
+        if (point != null) {
+          canvas.drawCircle(point, limbPaint.strokeWidth / 2, limbPaint);
+        }
       }
     }
-    for (final entry in landmarks.entries) {
-      final jointPaint = Paint()
-        ..color = color
-        ..style = entry.key == highlightedJoint
-            ? PaintingStyle.fill
-            : PaintingStyle.stroke
-        ..strokeWidth = 1.8;
-      canvas.drawCircle(toCanvas(entry.value), 2.8, jointPaint);
-    }
-    final nose = landmarks['nose'];
+
+    drawLimb(['leftShoulder', 'leftElbow', 'leftWrist'], armPaint);
+    drawLimb(['rightShoulder', 'rightElbow', 'rightWrist'], armPaint);
+    drawLimb(['leftHip', 'leftKnee', 'leftAnkle'], legPaint);
+    drawLimb(['rightHip', 'rightKnee', 'rightAnkle'], legPaint);
+
+    final nose = joint('nose');
     if (nose != null) {
-      canvas.drawCircle(toCanvas(nose), 5, paint);
+      canvas
+        ..drawOval(
+          Rect.fromCenter(center: nose, width: 13, height: 17),
+          Paint()..color = color,
+        )
+        ..drawArc(
+          Rect.fromCenter(
+            center: nose.translate(0, -1.5),
+            width: 13,
+            height: 11,
+          ),
+          math.pi,
+          math.pi,
+          false,
+          Paint()
+            ..color = Colors.black.withValues(alpha: 0.3)
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = 2,
+        );
+    }
+
+    for (final entry in landmarks.entries) {
+      final point = toCanvas(entry.value);
+      final isHighlighted = entry.key == highlightedJoint;
+      if (isHighlighted) {
+        canvas.drawCircle(
+          point,
+          5.2,
+          Paint()
+            ..color = Colors.white
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = 1.4,
+        );
+      }
+      final jointPaint = Paint()
+        ..color = isHighlighted ? Colors.white : color
+        ..style = PaintingStyle.fill;
+      canvas.drawCircle(point, isHighlighted ? 3.8 : 2, jointPaint);
     }
   }
 
@@ -154,177 +229,144 @@ class PoseSilhouettePainter extends CustomPainter {
     bool sitting = false,
     bool walking = false,
   }) {
-    final headCenter = Offset(centerX, top + 11 * scale);
-    final headRadius = 6 * scale;
-    final neck = Offset(centerX, top + 19 * scale);
-    final leftShoulder = Offset(centerX - 10 * scale, top + 25 * scale);
-    final rightShoulder = Offset(centerX + 10 * scale, top + 25 * scale);
-    final chest = Offset(centerX, top + 27 * scale);
-    final waist = Offset(centerX, top + 52 * scale);
-    final leftHip = Offset(centerX - 6 * scale, top + 53 * scale);
-    final rightHip = Offset(centerX + 6 * scale, top + 53 * scale);
-
-    canvas.drawCircle(headCenter, headRadius, paint);
+    canvas.save();
     canvas
-      ..drawLine(Offset(centerX, headCenter.dy + headRadius), neck, paint)
-      ..drawLine(neck, chest, paint)
-      ..drawLine(leftShoulder, rightShoulder, paint)
-      ..drawLine(leftShoulder, chest, paint)
-      ..drawLine(rightShoulder, chest, paint)
-      ..drawLine(chest, waist, paint)
-      ..drawLine(leftHip, rightHip, paint);
+      ..translate(centerX, top)
+      ..scale(scale);
+
+    final bodyPaint = Paint()
+      ..color = color
+      ..style = PaintingStyle.fill;
+    final detailPaint = Paint()
+      ..color = Colors.black.withValues(alpha: 0.24)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.4
+      ..strokeCap = StrokeCap.round;
+    final hairPaint = Paint()
+      ..color = Colors.black.withValues(alpha: 0.3)
+      ..style = PaintingStyle.fill;
+
+    canvas
+      ..drawOval(
+        Rect.fromCenter(center: const Offset(0, 11), width: 13, height: 16),
+        bodyPaint,
+      )
+      ..drawRRect(
+        RRect.fromRectAndRadius(
+          const Rect.fromLTRB(-3.2, 18, 3.2, 25),
+          const Radius.circular(2),
+        ),
+        bodyPaint,
+      );
+
+    final shirt = Path()
+      ..moveTo(-5, 23)
+      ..quadraticBezierTo(-9, 23, -12, 27)
+      ..lineTo(-17, 38)
+      ..lineTo(-12, 41)
+      ..lineTo(-9, 36)
+      ..lineTo(-8, 52)
+      ..quadraticBezierTo(0, 56, 8, 52)
+      ..lineTo(9, 36)
+      ..lineTo(12, 41)
+      ..lineTo(17, 38)
+      ..lineTo(12, 27)
+      ..quadraticBezierTo(9, 23, 5, 23)
+      ..lineTo(0, 27)
+      ..close();
+    canvas.drawPath(shirt, bodyPaint);
+
+    final leftHip = Offset(-5, 51);
+    final rightHip = Offset(5, 51);
+    final leftShoulder = const Offset(-10, 27);
+    final rightShoulder = const Offset(10, 27);
+    final limbPaint = Paint()
+      ..color = color
+      ..strokeWidth = 6.5
+      ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round;
+    final legPaint = Paint()
+      ..color = color.withValues(alpha: 0.82)
+      ..strokeWidth = 8
+      ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round;
+
+    void drawLimb(Paint limb, List<Offset> points) {
+      for (var index = 0; index < points.length - 1; index++) {
+        canvas.drawLine(points[index], points[index + 1], limb);
+      }
+      for (final joint in points.skip(1).take(points.length - 2)) {
+        canvas.drawCircle(joint, limb.strokeWidth / 2, limb);
+      }
+    }
 
     if (sitting) {
+      drawLimb(limbPaint, [
+        leftShoulder,
+        const Offset(-15, 39),
+        const Offset(-4, 47),
+      ]);
+      drawLimb(limbPaint, [
+        rightShoulder,
+        const Offset(15, 36),
+        const Offset(5, 47),
+      ]);
+      drawLimb(legPaint, [
+        leftHip,
+        const Offset(-18, 65),
+        const Offset(12, 65),
+        const Offset(20, 82),
+      ]);
+      drawLimb(legPaint, [
+        rightHip,
+        const Offset(13, 64),
+        const Offset(-4, 76),
+        const Offset(-20, 76),
+      ]);
       canvas
-        ..drawLine(
-          leftShoulder,
-          Offset(centerX - 14 * scale, top + 39 * scale),
-          paint,
-        )
-        ..drawLine(
-          Offset(centerX - 14 * scale, top + 39 * scale),
-          Offset(centerX - 4 * scale, top + 47 * scale),
-          paint,
-        )
-        ..drawLine(
-          rightShoulder,
-          Offset(centerX + 15 * scale, top + 36 * scale),
-          paint,
-        )
-        ..drawLine(
-          Offset(centerX + 15 * scale, top + 36 * scale),
-          Offset(centerX + 5 * scale, top + 47 * scale),
-          paint,
-        )
-        ..drawLine(
-          leftHip,
-          Offset(centerX - 18 * scale, top + 65 * scale),
-          paint,
-        )
-        ..drawLine(
-          Offset(centerX - 18 * scale, top + 65 * scale),
-          Offset(centerX + 12 * scale, top + 65 * scale),
-          paint,
-        )
-        ..drawLine(
-          Offset(centerX + 12 * scale, top + 65 * scale),
-          Offset(centerX + 20 * scale, top + 82 * scale),
-          paint,
-        )
-        ..drawLine(
-          Offset(centerX + 20 * scale, top + 82 * scale),
-          Offset(centerX + 7 * scale, top + 82 * scale),
-          paint,
-        )
-        ..drawLine(
-          rightHip,
-          Offset(centerX + 13 * scale, top + 64 * scale),
-          paint,
-        )
-        ..drawLine(
-          Offset(centerX + 13 * scale, top + 64 * scale),
-          Offset(centerX - 4 * scale, top + 76 * scale),
-          paint,
-        )
-        ..drawLine(
-          Offset(centerX - 4 * scale, top + 76 * scale),
-          Offset(centerX - 20 * scale, top + 76 * scale),
-          paint,
-        );
-      return;
+        ..drawLine(const Offset(20, 82), const Offset(7, 82), limbPaint)
+        ..drawLine(const Offset(-20, 76), const Offset(-30, 76), limbPaint);
+    } else {
+      drawLimb(
+        limbPaint,
+        handOnHip
+            ? [leftShoulder, const Offset(-15, 40), const Offset(-9, 51)]
+            : [leftShoulder, const Offset(-15, 40), const Offset(-12, 52)],
+      );
+      drawLimb(
+        limbPaint,
+        handOnHip
+            ? [rightShoulder, const Offset(16, 39), const Offset(7, 49)]
+            : [rightShoulder, const Offset(15, 40), const Offset(12, 52)],
+      );
+
+      final leftKnee = walking ? const Offset(-15, 70) : const Offset(-7, 74);
+      final rightKnee = walking ? const Offset(16, 68) : const Offset(7, 74);
+      final leftAnkle = walking ? const Offset(-24, 91) : const Offset(-10, 96);
+      final rightAnkle = walking ? const Offset(9, 91) : const Offset(10, 96);
+      drawLimb(legPaint, [leftHip, leftKnee, leftAnkle]);
+      drawLimb(legPaint, [rightHip, rightKnee, rightAnkle]);
+
+      canvas
+        ..drawLine(leftAnkle, leftAnkle.translate(-5, 1), limbPaint)
+        ..drawLine(rightAnkle, rightAnkle.translate(5, 1), limbPaint);
     }
 
-    if (handOnHip) {
-      canvas
-        ..drawLine(
-          leftShoulder,
-          Offset(centerX - 15 * scale, top + 40 * scale),
-          paint,
-        )
-        ..drawLine(
-          Offset(centerX - 15 * scale, top + 40 * scale),
-          Offset(centerX - 9 * scale, top + 51 * scale),
-          paint,
-        )
-        ..drawLine(
-          rightShoulder,
-          Offset(centerX + 16 * scale, top + 39 * scale),
-          paint,
-        )
-        ..drawLine(
-          Offset(centerX + 16 * scale, top + 39 * scale),
-          Offset(centerX + 7 * scale, top + 49 * scale),
-          paint,
-        );
-    } else {
-      canvas
-        ..drawLine(
-          leftShoulder,
-          Offset(centerX - 15 * scale, top + 40 * scale),
-          paint,
-        )
-        ..drawLine(
-          Offset(centerX - 15 * scale, top + 40 * scale),
-          Offset(centerX - 12 * scale, top + 52 * scale),
-          paint,
-        )
-        ..drawLine(
-          rightShoulder,
-          Offset(centerX + 15 * scale, top + 40 * scale),
-          paint,
-        )
-        ..drawLine(
-          Offset(centerX + 15 * scale, top + 40 * scale),
-          Offset(centerX + 12 * scale, top + 52 * scale),
-          paint,
-        );
-    }
-
-    if (walking) {
-      canvas
-        ..drawLine(
-          leftHip,
-          Offset(centerX - 15 * scale, top + 70 * scale),
-          paint,
-        )
-        ..drawLine(
-          Offset(centerX - 15 * scale, top + 70 * scale),
-          Offset(centerX - 24 * scale, top + 91 * scale),
-          paint,
-        )
-        ..drawLine(
-          rightHip,
-          Offset(centerX + 16 * scale, top + 68 * scale),
-          paint,
-        )
-        ..drawLine(
-          Offset(centerX + 16 * scale, top + 68 * scale),
-          Offset(centerX + 9 * scale, top + 91 * scale),
-          paint,
-        );
-    } else {
-      canvas
-        ..drawLine(
-          leftHip,
-          Offset(centerX - 8 * scale, top + 74 * scale),
-          paint,
-        )
-        ..drawLine(
-          Offset(centerX - 8 * scale, top + 74 * scale),
-          Offset(centerX - 10 * scale, top + 96 * scale),
-          paint,
-        )
-        ..drawLine(
-          rightHip,
-          Offset(centerX + 8 * scale, top + 74 * scale),
-          paint,
-        )
-        ..drawLine(
-          Offset(centerX + 8 * scale, top + 74 * scale),
-          Offset(centerX + 10 * scale, top + 96 * scale),
-          paint,
-        );
-    }
+    final shirtSeam = Path()
+      ..moveTo(0, 28)
+      ..lineTo(0, 50)
+      ..moveTo(-8, 52)
+      ..quadraticBezierTo(0, 55, 8, 52);
+    final hair = Path()
+      ..moveTo(-6, 8)
+      ..quadraticBezierTo(-5, 1, 1, 3)
+      ..quadraticBezierTo(7, 3, 6, 9)
+      ..quadraticBezierTo(1, 6, -6, 8)
+      ..close();
+    canvas
+      ..drawPath(shirtSeam, detailPaint)
+      ..drawPath(hair, hairPaint)
+      ..restore();
   }
 
   void _drawBackpack(Canvas canvas, Paint paint) {
@@ -332,7 +374,11 @@ class PoseSilhouettePainter extends CustomPainter {
       const Rect.fromLTRB(63, 45, 72, 66),
       const Radius.circular(4),
     );
+    final fillPaint = Paint()
+      ..color = color.withValues(alpha: 0.72)
+      ..style = PaintingStyle.fill;
     canvas
+      ..drawRRect(backpack, fillPaint)
       ..drawRRect(backpack, paint)
       ..drawLine(const Offset(63, 49), const Offset(59, 57), paint);
   }

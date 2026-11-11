@@ -15,6 +15,7 @@ void main() {
     await tester.pumpWidget(const MaterialApp(home: CustomPoseEditorScreen()));
     await tester.pumpAndSettle();
 
+    expect(tester.takeException(), isNull);
     expect(find.textContaining('Đặt một tay lên lan can'), findsOneWidget);
     await tester.tap(find.widgetWithText(ChoiceChip, 'Dựa tường'));
     await tester.pumpAndSettle();
@@ -41,6 +42,7 @@ void main() {
     );
     await tester.pump();
 
+    expect(tester.takeException(), isNull);
     final movedNose =
         tester
                 .widget<CustomPaint>(

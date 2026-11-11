@@ -203,8 +203,8 @@ class _CustomPoseEditorScreenState extends State<CustomPoseEditorScreen> {
           padding: const EdgeInsets.all(16),
           children: [
             const Text(
-              'Chọn gợi ý rồi kéo các khớp để tạo dáng. Mẫu chỉ lưu khung xương, '
-              'không lưu ảnh.',
+              'Chọn gợi ý rồi kéo các khớp để tạo dáng. Mẫu được hiển thị dạng '
+              'vector và chỉ lưu tọa độ, không lưu ảnh.',
               style: TextStyle(color: Colors.white70),
             ),
             const SizedBox(height: 12),

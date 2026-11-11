@@ -75,6 +75,7 @@ class _CameraScreenState extends State<CameraScreen> {
   Timer? _focusIndicatorTimer;
   double _pinchStartZoom = 1;
   bool _isCameraPinchZoomEnabled = true;
+  bool _isZoomControlVisible = false;
   bool _isPoseAssistEnabled = false;
   int _poseMatchStreak = 0;
   DetectedPoseFrame? _detectedPoseFrame;
@@ -890,6 +891,51 @@ class _CameraScreenState extends State<CameraScreen> {
 
   Widget _buildZoomControl() {
     if (_maxZoomLevel <= _minZoomLevel) return const SizedBox.shrink();
+    if (!_isZoomControlVisible) {
+      return Align(
+        alignment: Alignment.centerRight,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 4),
+          child: Tooltip(
+            message: 'Điều chỉnh zoom chính xác',
+            child: Material(
+              color: Colors.black54,
+              borderRadius: BorderRadius.circular(24),
+              child: InkWell(
+                key: const ValueKey('camera-zoom-toggle'),
+                borderRadius: BorderRadius.circular(24),
+                onTap: () => setState(() => _isZoomControlVisible = true),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 8,
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(
+                        Icons.zoom_in,
+                        color: Colors.white70,
+                        size: 18,
+                      ),
+                      const SizedBox(width: 6),
+                      Text(
+                        '${_zoomLevel.toStringAsFixed(1)}x',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 32, vertical: 8),
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
@@ -918,8 +964,13 @@ class _CameraScreenState extends State<CameraScreen> {
               fontWeight: FontWeight.w600,
             ),
           ),
-          const SizedBox(width: 4),
-          const Icon(Icons.zoom_in, color: Colors.white70),
+          IconButton(
+            key: const ValueKey('camera-zoom-collapse'),
+            tooltip: 'Thu gọn thanh zoom',
+            onPressed: () => setState(() => _isZoomControlVisible = false),
+            visualDensity: VisualDensity.compact,
+            icon: const Icon(Icons.close, color: Colors.white70),
+          ),
         ],
       ),
     );
@@ -1125,40 +1176,6 @@ class _CameraScreenState extends State<CameraScreen> {
                               isMatched: _poseMatchStreak >= 3,
                             ),
                           ),
-                        if (_selectedPosePath != null ||
-                            _selectedCatalogPose != null)
-                          Positioned(
-                            top: 8,
-                            right: 8,
-                            child: Row(
-                              children: [
-                                _GhostActionButton(
-                                  tooltip: _isCameraPinchZoomEnabled
-                                      ? 'Chuyển pinch sang chỉnh ảnh mẫu'
-                                      : 'Chuyển pinch sang zoom camera',
-                                  icon: _isCameraPinchZoomEnabled
-                                      ? Icons.zoom_in
-                                      : Icons.camera_alt_outlined,
-                                  onPressed: () => setState(
-                                    () => _isCameraPinchZoomEnabled =
-                                        !_isCameraPinchZoomEnabled,
-                                  ),
-                                ),
-                                const SizedBox(width: 8),
-                                _GhostActionButton(
-                                  tooltip: 'Đặt lại vị trí ảnh mẫu',
-                                  icon: Icons.restart_alt,
-                                  onPressed: _resetGhostTransform,
-                                ),
-                                const SizedBox(width: 8),
-                                _GhostActionButton(
-                                  tooltip: 'Gỡ ảnh mẫu',
-                                  icon: Icons.close,
-                                  onPressed: _removeGhostImage,
-                                ),
-                              ],
-                            ),
-                          ),
                         if (_focusPoint != null && _isExposureControlVisible)
                           Positioned(
                             top:
@@ -1305,6 +1322,43 @@ class _CameraScreenState extends State<CameraScreen> {
                             ),
                           ],
                         ),
+                        if (_selectedPosePath != null ||
+                            _selectedCatalogPose != null)
+                          Align(
+                            alignment: Alignment.centerRight,
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                _GhostActionButton(
+                                  tooltip: _isCameraPinchZoomEnabled
+                                      ? 'Đang zoom camera · Chạm để chỉnh mẫu'
+                                      : 'Đang chỉnh mẫu · Chạm để zoom camera',
+                                  icon: _isCameraPinchZoomEnabled
+                                      ? Icons.camera_alt_outlined
+                                      : Icons.pan_tool_alt,
+                                  label: _isCameraPinchZoomEnabled
+                                      ? 'Zoom camera'
+                                      : 'Chỉnh mẫu',
+                                  onPressed: () => setState(
+                                    () => _isCameraPinchZoomEnabled =
+                                        !_isCameraPinchZoomEnabled,
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                _GhostActionButton(
+                                  tooltip: 'Đặt lại vị trí và kích thước mẫu',
+                                  icon: Icons.restart_alt,
+                                  onPressed: _resetGhostTransform,
+                                ),
+                                const SizedBox(width: 8),
+                                _GhostActionButton(
+                                  tooltip: 'Gỡ mẫu',
+                                  icon: Icons.close,
+                                  onPressed: _removeGhostImage,
+                                ),
+                              ],
+                            ),
+                          ),
                         const SizedBox(height: 8),
                         ValueListenableBuilder<({double roll, double pitch})?>(
                           valueListenable: _levelReading,
@@ -1401,11 +1455,13 @@ class _CameraScreenState extends State<CameraScreen> {
 class _GhostActionButton extends StatelessWidget {
   final String tooltip;
   final IconData icon;
+  final String? label;
   final VoidCallback onPressed;
 
   const _GhostActionButton({
     required this.tooltip,
     required this.icon,
+    this.label,
     required this.onPressed,
   });
 
@@ -1413,11 +1469,26 @@ class _GhostActionButton extends StatelessWidget {
   Widget build(BuildContext context) {
     return Material(
       color: Colors.black54,
-      shape: const CircleBorder(),
-      child: IconButton(
-        tooltip: tooltip,
-        onPressed: onPressed,
-        icon: Icon(icon, color: Colors.white),
+      shape: label == null ? const CircleBorder() : const StadiumBorder(),
+      child: Tooltip(
+        message: tooltip,
+        child: label == null
+            ? IconButton(
+                tooltip: tooltip,
+                onPressed: onPressed,
+                icon: Icon(icon, color: Colors.white),
+              )
+            : TextButton.icon(
+                onPressed: onPressed,
+                icon: Icon(icon, color: Colors.white, size: 18),
+                label: Text(label!),
+                style: TextButton.styleFrom(
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                  minimumSize: const Size(0, 44),
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                ),
+              ),
       ),
     );
   }
