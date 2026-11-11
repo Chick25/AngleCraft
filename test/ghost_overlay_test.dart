@@ -155,6 +155,34 @@ void main() {
     expect(finalTransform!.scale, closeTo(1, 0.1));
   });
 
+  testWidgets('forwards double taps to the exposure control', (tester) async {
+    var doubleTapCount = 0;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: SizedBox(
+            width: 240,
+            height: 400,
+            child: GhostOverlayWidget(
+              imagePath: 'missing_sample_image.jpg',
+              isAsset: false,
+              onExposureDoubleTap: () => doubleTapCount++,
+            ),
+          ),
+        ),
+      ),
+    );
+
+    final overlay = find.byKey(const ValueKey('ghostOverlayGesture'));
+    await tester.tap(overlay);
+    await tester.pump(const Duration(milliseconds: 100));
+    await tester.tap(overlay);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 500));
+
+    expect(doubleTapCount, 1);
+  });
+
   testWidgets('keeps ghost scaling when camera pinch zoom is disabled', (
     tester,
   ) async {

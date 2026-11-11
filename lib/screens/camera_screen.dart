@@ -58,14 +58,19 @@ class _CameraScreenState extends State<CameraScreen> {
   double _maxZoomLevel = 1;
   double _zoomLevel = 1;
   double _appliedZoomLevel = 1;
+  int _zoomRequestId = 0;
   Timer? _zoomDebounce;
   double _minExposureOffset = 0;
   double _maxExposureOffset = 0;
   double _exposureOffset = 0;
   double _appliedExposureOffset = 0;
   String? _exposureError;
+  int _exposureRequestId = 0;
   Timer? _exposureDebounce;
+  ({double value, int requestId})? _pendingExposureRequest;
+  bool _isApplyingExposureRequest = false;
   Offset? _focusPoint;
+  bool _isExposureControlVisible = false;
   bool _isFocusIndicatorVisible = false;
   Timer? _focusIndicatorTimer;
   double _pinchStartZoom = 1;
@@ -631,6 +636,7 @@ class _CameraScreenState extends State<CameraScreen> {
   }
 
   void _scheduleZoom(double value) {
+    _zoomRequestId++;
     setState(() => _zoomLevel = value);
     _zoomDebounce?.cancel();
     _zoomDebounce = Timer(
@@ -655,15 +661,16 @@ class _CameraScreenState extends State<CameraScreen> {
     _zoomDebounce?.cancel();
     final controller = _cameraService.controller;
     if (controller == null || !controller.value.isInitialized) return;
+    final requestId = ++_zoomRequestId;
     try {
       await controller.setZoomLevel(value);
-      if (!mounted) return;
+      if (!mounted || requestId != _zoomRequestId) return;
       setState(() {
         _zoomLevel = value;
         _appliedZoomLevel = value;
       });
     } catch (error) {
-      if (!mounted) return;
+      if (!mounted || requestId != _zoomRequestId) return;
       setState(() => _zoomLevel = _appliedZoomLevel);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Không thể thay đổi mức zoom: $error')),
@@ -718,39 +725,70 @@ class _CameraScreenState extends State<CameraScreen> {
     }
   }
 
+  void _toggleExposureControl() {
+    setState(() => _isExposureControlVisible = !_isExposureControlVisible);
+  }
+
   void _scheduleExposureOffset(double value) {
     final boundedValue = value
         .clamp(_minExposureOffset, _maxExposureOffset)
         .toDouble();
+    _exposureRequestId++;
     setState(() => _exposureOffset = boundedValue);
     _exposureDebounce?.cancel();
+    final requestId = _exposureRequestId;
     _exposureDebounce = Timer(
-      const Duration(milliseconds: 100),
-      () => _applyExposureOffset(boundedValue),
+      const Duration(milliseconds: 50),
+      () => _queueExposureOffset(boundedValue, requestId),
     );
   }
 
-  Future<void> _applyExposureOffset(double value) async {
+  void _applyExposureOffset(double value) {
     _exposureDebounce?.cancel();
-    final controller = _cameraService.controller;
-    if (controller == null || !controller.value.isInitialized) return;
+    _queueExposureOffset(
+      value.clamp(_minExposureOffset, _maxExposureOffset).toDouble(),
+      _exposureRequestId,
+    );
+  }
+
+  void _queueExposureOffset(double value, int requestId) {
+    _pendingExposureRequest = (value: value, requestId: requestId);
+    if (_isApplyingExposureRequest) return;
+    unawaited(_drainExposureRequests());
+  }
+
+  Future<void> _drainExposureRequests() async {
+    _isApplyingExposureRequest = true;
     try {
-      final appliedValue = await controller.setExposureOffset(value);
-      if (!mounted) return;
-      setState(() {
-        _exposureOffset = appliedValue;
-        _appliedExposureOffset = appliedValue;
-        _exposureError = null;
-      });
-    } catch (error) {
-      if (!mounted) return;
-      setState(() {
-        _exposureOffset = _appliedExposureOffset;
-        _exposureError = 'Không thể thay đổi phơi sáng: $error';
-      });
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(_exposureError!)));
+      while (mounted && _pendingExposureRequest != null) {
+        final request = _pendingExposureRequest!;
+        _pendingExposureRequest = null;
+        final controller = _cameraService.controller;
+        if (controller == null || !controller.value.isInitialized) return;
+
+        try {
+          final appliedValue = await controller.setExposureOffset(
+            request.value,
+          );
+          _appliedExposureOffset = appliedValue;
+          if (!mounted || request.requestId != _exposureRequestId) continue;
+          setState(() => _exposureError = null);
+        } catch (error) {
+          if (!mounted || request.requestId != _exposureRequestId) continue;
+          setState(() {
+            _exposureOffset = _appliedExposureOffset;
+            _exposureError = 'Không thể thay đổi phơi sáng: $error';
+          });
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(SnackBar(content: Text(_exposureError!)));
+        }
+      }
+    } finally {
+      _isApplyingExposureRequest = false;
+      if (mounted && _pendingExposureRequest != null) {
+        unawaited(_drainExposureRequests());
+      }
     }
   }
 
@@ -1034,6 +1072,7 @@ class _CameraScreenState extends State<CameraScreen> {
               key: _cameraPreviewKey,
               behavior: HitTestBehavior.opaque,
               onTapUp: (details) => _focusAt(details.localPosition),
+              onDoubleTap: _toggleExposureControl,
               onScaleStart: hasGhostOverlay ? null : _startCameraZoomGesture,
               onScaleUpdate: hasGhostOverlay ? null : _updateCameraZoomGesture,
               child: LayoutBuilder(
@@ -1063,6 +1102,7 @@ class _CameraScreenState extends State<CameraScreen> {
                             isAsset: false,
                             initialTransform: _ghostTransform,
                             onCameraTap: _focusAt,
+                            onExposureDoubleTap: _toggleExposureControl,
                             onCameraScaleStart: _isCameraPinchZoomEnabled
                                 ? _startCameraZoomGesture
                                 : null,
@@ -1119,7 +1159,7 @@ class _CameraScreenState extends State<CameraScreen> {
                               ],
                             ),
                           ),
-                        if (_focusPoint != null)
+                        if (_focusPoint != null && _isExposureControlVisible)
                           Positioned(
                             top:
                                 (_focusPoint!.dy *

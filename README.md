@@ -49,9 +49,10 @@ guide on Android. Context tips are user-selected guidance, not automatic
 recognition of objects such as railings. Pinch the live camera preview to zoom,
 or use the zoom slider for precise adjustments. When a guide is selected, its
 camera/guide icon switches pinch gestures between camera zoom and guide
-transforms. Tap the preview to set the focus and exposure points; when
-supported by the camera, a nearby vertical EV control lets you brighten or
-darken the live view and reset exposure to 0.
+transforms. Tap the preview to set focus; double-tap to show or hide the
+exposure control. When supported by the camera, its vertical EV slider lets you
+brighten or darken the live view and reset exposure to 0. Available EV values
+depend on the camera hardware.
 
 The photo viewer also provides lightweight tone and lighting previews using
 Flutter's built-in color filters; previews do not modify the original or

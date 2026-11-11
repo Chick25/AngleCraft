@@ -21,9 +21,8 @@ class LevelIndicatorWidget extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final maximumTilt = math.max(roll.abs(), pitch.abs());
-    final isBalanced = isAvailable && maximumTilt <= balancedThreshold;
-    final isSeverelyTilted = isAvailable && maximumTilt > severeTiltThreshold;
+    final isBalanced = isAvailable && roll.abs() <= balancedThreshold;
+    final isSeverelyTilted = isAvailable && roll.abs() > severeTiltThreshold;
     final statusColor = !isAvailable
         ? Colors.white54
         : isBalanced
@@ -59,7 +58,6 @@ class LevelIndicatorWidget extends StatelessWidget {
               child: CustomPaint(
                 painter: _LevelBubblePainter(
                   roll: roll,
-                  pitch: pitch,
                   color: statusColor,
                   enabled: isAvailable,
                 ),
@@ -107,8 +105,8 @@ class LevelIndicatorWidget extends StatelessWidget {
                   const SizedBox(height: 3),
                   Text(
                     isAvailable
-                        ? 'Dọc     ${_formatAngle(pitch)}°'
-                        : 'Dọc     --',
+                        ? 'Góc chụp  ${_formatAngle(pitch)}°'
+                        : 'Góc chụp  --',
                     style: const TextStyle(color: Colors.white, fontSize: 12),
                   ),
                 ],
@@ -126,13 +124,11 @@ class LevelIndicatorWidget extends StatelessWidget {
 
 class _LevelBubblePainter extends CustomPainter {
   final double roll;
-  final double pitch;
   final Color color;
   final bool enabled;
 
   const _LevelBubblePainter({
     required this.roll,
-    required this.pitch,
     required this.color,
     required this.enabled,
   });
@@ -173,8 +169,7 @@ class _LevelBubblePainter extends CustomPainter {
 
     final maximumOffset = radius * 0.7;
     final rollOffset = _mapAngleToOffset(roll, maximumOffset);
-    final pitchOffset = _mapAngleToOffset(pitch, maximumOffset);
-    final bubbleOffset = Offset(rollOffset, pitchOffset);
+    final bubbleOffset = Offset(rollOffset, 0);
     final bubblePaint = Paint()
       ..color = color.withValues(alpha: 0.86)
       ..style = PaintingStyle.fill;
@@ -202,7 +197,6 @@ class _LevelBubblePainter extends CustomPainter {
   @override
   bool shouldRepaint(covariant _LevelBubblePainter oldDelegate) =>
       oldDelegate.roll != roll ||
-      oldDelegate.pitch != pitch ||
       oldDelegate.color != color ||
       oldDelegate.enabled != enabled;
 }

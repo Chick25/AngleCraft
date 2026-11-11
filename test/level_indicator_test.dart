@@ -3,18 +3,18 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
-  testWidgets('shows green status within the balance threshold', (
+  testWidgets('shows balanced status for a level horizon while aiming down', (
     tester,
   ) async {
     await tester.pumpWidget(
       const MaterialApp(
-        home: Scaffold(body: LevelIndicatorWidget(roll: 1, pitch: -2)),
+        home: Scaffold(body: LevelIndicatorWidget(roll: 1, pitch: -45)),
       ),
     );
 
     expect(find.text('Đã cân bằng'), findsOneWidget);
     expect(find.text('Ngang  +1.0°'), findsOneWidget);
-    expect(find.text('Dọc     -2.0°'), findsOneWidget);
+    expect(find.text('Góc chụp  -45.0°'), findsOneWidget);
   });
 
   testWidgets('shows a red warning for severe tilt', (tester) async {

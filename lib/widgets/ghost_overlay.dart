@@ -13,6 +13,7 @@ class GhostOverlayWidget extends StatefulWidget {
   final PoseItem? pose;
   final GhostTransform initialTransform;
   final ValueChanged<Offset>? onCameraTap;
+  final VoidCallback? onExposureDoubleTap;
   final GestureScaleStartCallback? onCameraScaleStart;
   final GestureScaleUpdateCallback? onCameraScaleUpdate;
   final ValueChanged<GhostTransform>? onTransformEnd;
@@ -25,6 +26,7 @@ class GhostOverlayWidget extends StatefulWidget {
     this.pose,
     this.initialTransform = const GhostTransform(),
     this.onCameraTap,
+    this.onExposureDoubleTap,
     this.onCameraScaleStart,
     this.onCameraScaleUpdate,
     this.onTransformEnd,
@@ -82,6 +84,7 @@ class _GhostOverlayWidgetState extends State<GhostOverlayWidget> {
           onTapUp: widget.onCameraTap == null
               ? null
               : (details) => widget.onCameraTap!(details.localPosition),
+          onDoubleTap: widget.onExposureDoubleTap,
           onScaleStart: (details) {
             _startingScale = _scale;
             _startingRotation = _rotation;
