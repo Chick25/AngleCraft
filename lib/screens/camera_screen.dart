@@ -81,6 +81,7 @@ class _CameraScreenState extends State<CameraScreen> {
   bool _isCameraPinchZoomEnabled = false;
   bool _isZoomControlVisible = false;
   bool _isPoseAssistEnabled = false;
+  bool _areCameraSlidersSuspended = false;
   DateTime? _lastPoseFrameStartedAt;
   int _poseMatchStreak = 0;
   DetectedPoseFrame? _detectedPoseFrame;
@@ -277,8 +278,13 @@ class _CameraScreenState extends State<CameraScreen> {
     final messenger = ScaffoldMessenger.of(context);
     if (_isPoseAssistEnabled) await _stopPoseAssist();
     if (!mounted) return;
-    setState(() => _isPickingPose = true);
+    setState(() {
+      _isPickingPose = true;
+      _areCameraSlidersSuspended = true;
+    });
     try {
+      await WidgetsBinding.instance.endOfFrame;
+      if (!mounted) return;
       final image = await ImagePicker().pickImage(source: ImageSource.gallery);
       if (!mounted || image == null) return;
       setState(() {
@@ -346,7 +352,11 @@ class _CameraScreenState extends State<CameraScreen> {
       );
     } finally {
       if (mounted) {
-        setState(() => _isPickingPose = false);
+        await WidgetsBinding.instance.endOfFrame;
+        setState(() {
+          _isPickingPose = false;
+          _areCameraSlidersSuspended = false;
+        });
       }
     }
   }
@@ -378,11 +388,28 @@ class _CameraScreenState extends State<CameraScreen> {
     });
   }
 
+  Future<T?> _withCameraSlidersSuspended<T>(
+    Future<T?> Function() action,
+  ) async {
+    setState(() => _areCameraSlidersSuspended = true);
+    await WidgetsBinding.instance.endOfFrame;
+    if (!mounted) return null;
+    try {
+      return await action();
+    } finally {
+      if (mounted) {
+        setState(() => _areCameraSlidersSuspended = false);
+      }
+    }
+  }
+
   Future<void> _selectCatalogPose() async {
     if (_isPoseAssistEnabled) await _stopPoseAssist();
     if (!mounted) return;
-    final pose = await Navigator.of(context).push<PoseItem>(
-      MaterialPageRoute(builder: (_) => const PoseCatalogScreen()),
+    final pose = await _withCameraSlidersSuspended(
+      () => Navigator.of(context).push<PoseItem>(
+        MaterialPageRoute(builder: (_) => const PoseCatalogScreen()),
+      ),
     );
     if (!mounted || pose == null) return;
     setState(() {
@@ -404,8 +431,10 @@ class _CameraScreenState extends State<CameraScreen> {
   Future<void> _openAngleVault() async {
     if (_isPoseAssistEnabled) await _stopPoseAssist();
     if (!mounted) return;
-    final angle = await Navigator.of(context).push<SavedAngle>(
-      MaterialPageRoute(builder: (_) => const AngleVaultScreen()),
+    final angle = await _withCameraSlidersSuspended(
+      () => Navigator.of(context).push<SavedAngle>(
+        MaterialPageRoute(builder: (_) => const AngleVaultScreen()),
+      ),
     );
     if (!mounted || angle == null) return;
 
@@ -581,9 +610,11 @@ class _CameraScreenState extends State<CameraScreen> {
   }
 
   Future<void> _openGallery() async {
-    await Navigator.of(
-      context,
-    ).push<void>(MaterialPageRoute(builder: (_) => const GalleryScreen()));
+    await _withCameraSlidersSuspended(
+      () => Navigator.of(
+        context,
+      ).push<void>(MaterialPageRoute(builder: (_) => const GalleryScreen())),
+    );
   }
 
   Future<void> _togglePoseAssist() async {
@@ -1208,7 +1239,9 @@ class _CameraScreenState extends State<CameraScreen> {
                               isMatched: _poseMatchStreak >= 3,
                             ),
                           ),
-                        if (_focusPoint != null && _isExposureControlVisible)
+                        if (_focusPoint != null &&
+                            _isExposureControlVisible &&
+                            !_areCameraSlidersSuspended)
                           Positioned(
                             top:
                                 (_focusPoint!.dy *
@@ -1399,7 +1432,8 @@ class _CameraScreenState extends State<CameraScreen> {
                                     ],
                                   ),
                                 ),
-                              if (!_isCameraPinchZoomEnabled &&
+                              if (!_areCameraSlidersSuspended &&
+                                  !_isCameraPinchZoomEnabled &&
                                   (_selectedPosePath != null ||
                                       _selectedCatalogPose != null))
                                 Container(
@@ -1491,7 +1525,8 @@ class _CameraScreenState extends State<CameraScreen> {
                   if (!_isCapturing && _isPoseAssistEnabled)
                     _buildPoseAssistStatus(),
 
-                  if (!_isCapturing) _buildZoomControl(),
+                  if (!_isCapturing && !_areCameraSlidersSuspended)
+                    _buildZoomControl(),
 
                   // Footer nút chụp ảnh và chọn dáng
                   if (!_isCapturing)
