@@ -41,6 +41,28 @@ void main() {
     expect(result.score, greaterThanOrEqualTo(80));
   });
 
+  test('does not score a standing pose without both leg joint chains', () {
+    final incompletePose = _createPose({
+      PoseLandmarkType.leftShoulder: const (40, 40),
+      PoseLandmarkType.rightShoulder: const (60, 40),
+      PoseLandmarkType.leftElbow: const (35, 60),
+      PoseLandmarkType.rightElbow: const (65, 60),
+      PoseLandmarkType.leftWrist: const (35, 80),
+      PoseLandmarkType.rightWrist: const (65, 80),
+      PoseLandmarkType.leftHip: const (44, 100),
+      PoseLandmarkType.rightHip: const (56, 100),
+    });
+
+    final result = PoseMatchingService.evaluate(
+      incompletePose,
+      samplePoses.firstWhere((pose) => pose.style == PoseStyle.standing),
+    );
+
+    expect(result.isMatched, isFalse);
+    expect(result.score, 0);
+    expect(result.feedback, contains('đầu gối'));
+  });
+
   test('matches a hand placed near the hip with a bent elbow', () {
     final result = PoseMatchingService.evaluate(
       handOnHipPose,
@@ -119,6 +141,96 @@ void main() {
     expect(result.score, greaterThanOrEqualTo(95));
   });
 
+  test('matches a custom pose when the person is scaled and repositioned', () {
+    final target = PoseItem(
+      id: 'uploaded-reference',
+      title: 'Uploaded reference',
+      description: 'Detected reference joints',
+      category: PoseCategory.travel,
+      style: PoseStyle.standing,
+      customLandmarks: PoseMatchingService.customLandmarksFromPose(
+        standingPose,
+      ),
+    );
+    final detectedPose = _createPose({
+      for (final entry in target.customLandmarks!.entries)
+        PoseLandmarkType.values.byName(entry.key): (
+          entry.value.dx * 500 + 200,
+          entry.value.dy * 500 + 350,
+        ),
+    });
+
+    final result = PoseMatchingService.evaluate(detectedPose, target);
+
+    expect(result.isMatched, isTrue);
+    expect(result.score, 100);
+  });
+
+  test('does not match when the arms differ from the reference pose', () {
+    final targetLandmarks = PoseMatchingService.customLandmarksFromPose(
+      standingPose,
+    )!;
+    final target = PoseItem(
+      id: 'uploaded-reference',
+      title: 'Uploaded reference',
+      description: 'Detected reference joints',
+      category: PoseCategory.travel,
+      style: PoseStyle.standing,
+      customLandmarks: targetLandmarks,
+    );
+    final detectedPoints = {
+      for (final entry in targetLandmarks.entries)
+        PoseLandmarkType.values.byName(entry.key): (
+          entry.value.dx * 100,
+          entry.value.dy * 100,
+        ),
+    };
+    detectedPoints[PoseLandmarkType.leftWrist] = (
+      targetLandmarks['leftHip']!.dx * 100,
+      targetLandmarks['leftHip']!.dy * 100,
+    );
+    detectedPoints[PoseLandmarkType.rightWrist] = (
+      targetLandmarks['rightHip']!.dx * 100,
+      targetLandmarks['rightHip']!.dy * 100,
+    );
+
+    final result = PoseMatchingService.evaluate(
+      _createPose(detectedPoints),
+      target,
+    );
+
+    expect(result.isMatched, isFalse);
+    expect(result.score, lessThan(80));
+  });
+
+  test('requires the target shoulder and hip landmarks for a custom match', () {
+    final targetLandmarks = PoseMatchingService.customLandmarksFromPose(
+      standingPose,
+    )!;
+    final target = PoseItem(
+      id: 'uploaded-reference',
+      title: 'Uploaded reference',
+      description: 'Detected reference joints',
+      category: PoseCategory.travel,
+      style: PoseStyle.standing,
+      customLandmarks: targetLandmarks,
+    );
+    final incompletePose = _createPose({
+      for (final entry in targetLandmarks.entries)
+        if (entry.key != PoseLandmarkType.leftShoulder.name)
+          PoseLandmarkType.values.byName(entry.key): (
+            entry.value.dx * 100,
+            entry.value.dy * 100,
+          ),
+    });
+
+    final result = PoseMatchingService.evaluate(incompletePose, target);
+
+    expect(result.isMatched, isFalse);
+    expect(result.score, 0);
+    expect(result.feedback, contains('khớp chính'));
+  });
+
   test('extracts normalized body landmarks from an uploaded-image pose', () {
     final landmarks = PoseMatchingService.customLandmarksFromPose(standingPose);
     expect(landmarks, isNotNull);
@@ -132,8 +244,8 @@ void main() {
     );
 
     expect(landmarks.length, 12);
-    expect(landmarks['leftShoulder'], const Offset(1 / 6, 0));
-    expect(landmarks['rightAnkle'], const Offset(0.7, 1));
+    expect(landmarks['leftShoulder'], const Offset(1 / 24, 0));
+    expect(landmarks['rightAnkle'], const Offset(7 / 40, 1));
     expect(
       PoseMatchingService.evaluate(standingPose, uploadedPose).isMatched,
       isTrue,
@@ -150,6 +262,26 @@ void main() {
     });
 
     expect(PoseMatchingService.customLandmarksFromPose(incompletePose), isNull);
+  });
+
+  test('requires shoulders and hips when importing a pose reference', () {
+    final poseWithoutHips = _createPose({
+      PoseLandmarkType.leftShoulder: const (40, 40),
+      PoseLandmarkType.rightShoulder: const (60, 40),
+      PoseLandmarkType.leftElbow: const (35, 60),
+      PoseLandmarkType.rightElbow: const (65, 60),
+      PoseLandmarkType.leftWrist: const (35, 80),
+      PoseLandmarkType.rightWrist: const (65, 80),
+      PoseLandmarkType.leftKnee: const (44, 130),
+      PoseLandmarkType.rightKnee: const (56, 130),
+      PoseLandmarkType.leftAnkle: const (44, 160),
+      PoseLandmarkType.rightAnkle: const (56, 160),
+    });
+
+    expect(
+      PoseMatchingService.customLandmarksFromPose(poseWithoutHips),
+      isNull,
+    );
   });
 
   test('custom pose coordinates survive local storage serialization', () {

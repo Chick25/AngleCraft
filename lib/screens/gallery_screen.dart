@@ -131,9 +131,11 @@ class PhotoViewerScreen extends StatefulWidget {
 
 class _PhotoViewerScreenState extends State<PhotoViewerScreen> {
   late final PageController _pageController;
+  late final List<TransformationController> _photoTransforms;
   late int _currentIndex;
   _PhotoFilter _filter = _PhotoFilter.neutral;
   bool _isDeleting = false;
+  bool _isPhotoZoomed = false;
 
   File get _currentPhoto => widget.photos[_currentIndex];
 
@@ -142,12 +144,32 @@ class _PhotoViewerScreenState extends State<PhotoViewerScreen> {
     super.initState();
     _currentIndex = widget.initialIndex;
     _pageController = PageController(initialPage: widget.initialIndex);
+    _photoTransforms = List.generate(widget.photos.length, (index) {
+      final controller = TransformationController();
+      controller.addListener(() => _onPhotoTransformChanged(index));
+      return controller;
+    });
   }
 
   @override
   void dispose() {
     _pageController.dispose();
+    for (final controller in _photoTransforms) {
+      controller.dispose();
+    }
     super.dispose();
+  }
+
+  void _onPhotoTransformChanged(int index) {
+    if (!mounted || index != _currentIndex) return;
+    final isZoomed = _photoTransforms[index].value.getMaxScaleOnAxis() > 1.01;
+    if (isZoomed != _isPhotoZoomed) {
+      setState(() => _isPhotoZoomed = isZoomed);
+    }
+  }
+
+  void _resetPhotoZoom() {
+    _photoTransforms[_currentIndex].value = Matrix4.identity();
   }
 
   Future<void> _showFilters() async {
@@ -351,6 +373,13 @@ class _PhotoViewerScreenState extends State<PhotoViewerScreen> {
         foregroundColor: Colors.white,
         title: Text('${_currentIndex + 1} / ${widget.photos.length}'),
         actions: [
+          if (_isPhotoZoomed)
+            IconButton(
+              key: const ValueKey('photo-zoom-reset'),
+              tooltip: 'Đặt lại mức zoom ảnh',
+              onPressed: _resetPhotoZoom,
+              icon: const Icon(Icons.zoom_out_map),
+            ),
           IconButton(
             tooltip: 'Chỉnh tone màu và ánh sáng',
             onPressed: _isDeleting ? null : _showFilters,
@@ -376,17 +405,25 @@ class _PhotoViewerScreenState extends State<PhotoViewerScreen> {
       ),
       body: PageView.builder(
         controller: _pageController,
+        physics: _isPhotoZoomed ? const NeverScrollableScrollPhysics() : null,
         itemCount: widget.photos.length,
-        onPageChanged: (index) => setState(() {
+        onPageChanged: (index) {
+          final previousIndex = _currentIndex;
           _currentIndex = index;
           _filter = _PhotoFilter.neutral;
-        }),
+          _photoTransforms[previousIndex].value = Matrix4.identity();
+          _photoTransforms[index].value = Matrix4.identity();
+          if (mounted) setState(() => _isPhotoZoomed = false);
+        },
         itemBuilder: (context, index) => Center(
           child: ColorFiltered(
             colorFilter: _filter.colorFilter,
             child: InteractiveViewer(
+              key: ValueKey('photo-viewer-$index'),
+              transformationController: _photoTransforms[index],
               minScale: 1,
               maxScale: 5,
+              boundaryMargin: const EdgeInsets.all(80),
               child: Image.file(
                 widget.photos[index],
                 fit: BoxFit.contain,

@@ -18,6 +18,7 @@ class DetectedPoseFrame {
 
 class PoseDetectionService {
   PoseDetector? _detector;
+  PoseDetector? _fileDetector;
   Future<void>? _activeProcessing;
   bool _isClosed = false;
 
@@ -61,7 +62,9 @@ class PoseDetectionService {
   }
 
   Future<Pose?> _processFile(String filePath) async {
-    final detector = _detector ??= _createDetector();
+    final detector = _fileDetector ??= _createDetector(
+      PoseDetectionMode.single,
+    );
     final poses = await detector.processImage(
       InputImage.fromFilePath(filePath),
     );
@@ -97,7 +100,7 @@ class PoseDetectionService {
         bytesPerRow: plane.bytesPerRow,
       ),
     );
-    final detector = _detector ??= _createDetector();
+    final detector = _detector ??= _createDetector(PoseDetectionMode.stream);
     final poses = await detector.processImage(inputImage);
 
     return DetectedPoseFrame(
@@ -108,11 +111,8 @@ class PoseDetectionService {
     );
   }
 
-  PoseDetector _createDetector() => PoseDetector(
-    options: PoseDetectorOptions(
-      model: PoseDetectionModel.base,
-      mode: PoseDetectionMode.stream,
-    ),
+  PoseDetector _createDetector(PoseDetectionMode mode) => PoseDetector(
+    options: PoseDetectorOptions(model: PoseDetectionModel.base, mode: mode),
   );
 
   InputImageRotation _rotationForCamera(
@@ -136,6 +136,8 @@ class PoseDetectionService {
     _isClosed = true;
     await _activeProcessing;
     await _detector?.close();
+    await _fileDetector?.close();
     _detector = null;
+    _fileDetector = null;
   }
 }

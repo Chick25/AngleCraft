@@ -7,12 +7,16 @@ A new Flutter project.
 On Android, choose a built-in **standing** or **hand-on-hip** pose, then tap
 the focus icon to enable on-device pose guidance. A yellow skeleton means the
 pose is still being adjusted; green means the main joint checks have matched
-for several processed frames. The score is a heuristic guide, not a guarantee
-of an identical pose. Custom poses are also supported. When you select a photo
-from the device, AngleCraft detects its body joints locally and uses them as
-the target; photos without enough visible body joints remain available for
-manual ghost-overlay alignment. Other built-in catalog styles are currently
-manual guides only.
+for several processed frames. Built-in styles check general joint rules; they
+do not compare against an exact reference photograph. For an imported image or
+custom pose, the app checks the detected joint layout while allowing the
+person to be repositioned and resized in the frame. The score is a geometric
+heuristic, not a probability or a guarantee of an identical pose. Imported
+references need visible shoulders, hips, and enough other body joints; images
+that do not meet that requirement remain available for manual ghost-overlay
+alignment. Pose detection identifies body landmarks and cannot tell whether a
+person is physically present or displayed on another screen. Other built-in
+catalog styles are currently manual guides only.
 
 Camera frames and reference photos are processed locally with Google ML Kit.
 The Android camera stream uses NV21, the format required by the ML Kit plugin.
@@ -48,9 +52,12 @@ reference photo is needed. Custom poses can be overlaid and compared with the
 live pose guide on Android. Context tips are user-selected guidance, not automatic
 recognition of objects such as railings. Pinch the live camera preview to zoom;
 the compact zoom button shows the current magnification and opens a slider for
-precise adjustment. When a guide is selected, use the labeled camera/guide
-button in the toolbar to switch whether pinching controls camera zoom or guide size. Tap the
-preview to set focus; double-tap to show or hide the exposure control. When
+precise adjustment. When a guide is selected, pinching adjusts the guide by
+default; use the labeled mode button to switch pinch gestures to camera zoom.
+The guide-size slider provides an alternative to pinching. In the photo viewer,
+pinch to zoom and pan; photo paging is paused while zoomed, and the zoom-reset
+button restores paging. Tap the preview to set focus; double-tap to show or hide
+the exposure control. When
 supported by the camera, its vertical EV slider lets you brighten or darken the
 live view and reset exposure to 0. Available EV values depend on the camera
 hardware.

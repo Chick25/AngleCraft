@@ -74,7 +74,7 @@ class _CameraScreenState extends State<CameraScreen> {
   bool _isFocusIndicatorVisible = false;
   Timer? _focusIndicatorTimer;
   double _pinchStartZoom = 1;
-  bool _isCameraPinchZoomEnabled = true;
+  bool _isCameraPinchZoomEnabled = false;
   bool _isZoomControlVisible = false;
   bool _isPoseAssistEnabled = false;
   int _poseMatchStreak = 0;
@@ -349,6 +349,17 @@ class _CameraScreenState extends State<CameraScreen> {
     setState(() {
       _ghostTransform = const GhostTransform();
       _ghostRevision++;
+    });
+  }
+
+  void _setGhostScale(double scale) {
+    setState(() {
+      _ghostTransform = GhostTransform(
+        offsetX: _ghostTransform.offsetX,
+        offsetY: _ghostTransform.offsetY,
+        scale: scale,
+        rotation: _ghostTransform.rotation,
+      );
     });
   }
 
@@ -1077,9 +1088,12 @@ class _CameraScreenState extends State<CameraScreen> {
           ),
           if (result != null && result.isSupported) ...[
             const SizedBox(width: 8),
-            Text(
-              '${result.score}%',
-              style: TextStyle(color: color, fontWeight: FontWeight.bold),
+            Tooltip(
+              message: 'Điểm so khớp hình học ước tính, không phải xác suất.',
+              child: Text(
+                '${result.score}%',
+                style: TextStyle(color: color, fontWeight: FontWeight.bold),
+              ),
             ),
           ],
         ],
@@ -1161,7 +1175,9 @@ class _CameraScreenState extends State<CameraScreen> {
                                 ? _updateCameraZoomGesture
                                 : null,
                             onTransformEnd: (transform) {
-                              _ghostTransform = transform;
+                              if (mounted) {
+                                setState(() => _ghostTransform = transform);
+                              }
                             },
                           ),
                         if (_isPoseAssistEnabled &&
@@ -1331,14 +1347,14 @@ class _CameraScreenState extends State<CameraScreen> {
                               children: [
                                 _GhostActionButton(
                                   tooltip: _isCameraPinchZoomEnabled
-                                      ? 'Đang zoom camera · Chạm để chỉnh mẫu'
-                                      : 'Đang chỉnh mẫu · Chạm để zoom camera',
+                                      ? 'Pinch đang zoom camera · Chạm để chỉnh mẫu'
+                                      : 'Pinch đang chỉnh mẫu · Chạm để zoom camera',
                                   icon: _isCameraPinchZoomEnabled
-                                      ? Icons.camera_alt_outlined
-                                      : Icons.pan_tool_alt,
+                                      ? Icons.pan_tool_alt
+                                      : Icons.camera_alt_outlined,
                                   label: _isCameraPinchZoomEnabled
-                                      ? 'Zoom camera'
-                                      : 'Chỉnh mẫu',
+                                      ? 'Chỉnh mẫu'
+                                      : 'Zoom camera',
                                   onPressed: () => setState(
                                     () => _isCameraPinchZoomEnabled =
                                         !_isCameraPinchZoomEnabled,
@@ -1355,6 +1371,48 @@ class _CameraScreenState extends State<CameraScreen> {
                                   tooltip: 'Gỡ mẫu',
                                   icon: Icons.close,
                                   onPressed: _removeGhostImage,
+                                ),
+                              ],
+                            ),
+                          ),
+                        if (!_isCameraPinchZoomEnabled &&
+                            (_selectedPosePath != null ||
+                                _selectedCatalogPose != null))
+                          Container(
+                            margin: const EdgeInsets.only(top: 8),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 12,
+                              vertical: 2,
+                            ),
+                            decoration: BoxDecoration(
+                              color: Colors.black54,
+                              borderRadius: BorderRadius.circular(20),
+                            ),
+                            child: Row(
+                              children: [
+                                const Icon(
+                                  Icons.image_outlined,
+                                  color: Colors.white70,
+                                ),
+                                Expanded(
+                                  child: Slider(
+                                    key: const ValueKey('ghost-scale-slider'),
+                                    min: 0.5,
+                                    max: 4,
+                                    value: _ghostTransform.scale
+                                        .clamp(0.5, 4)
+                                        .toDouble(),
+                                    activeColor: Colors.yellowAccent,
+                                    onChanged: _setGhostScale,
+                                  ),
+                                ),
+                                SizedBox(
+                                  width: 42,
+                                  child: Text(
+                                    '${_ghostTransform.scale.toStringAsFixed(1)}x',
+                                    style: const TextStyle(color: Colors.white),
+                                    textAlign: TextAlign.end,
+                                  ),
                                 ),
                               ],
                             ),

@@ -5,6 +5,38 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  testWidgets('pauses photo paging while zoomed and restores it on reset', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: PhotoViewerScreen(
+          photos: [File('first-photo.jpg'), File('second-photo.jpg')],
+          initialIndex: 0,
+        ),
+      ),
+    );
+    await tester.pump();
+
+    final viewer = tester.widget<InteractiveViewer>(
+      find.byType(InteractiveViewer).first,
+    );
+    viewer.transformationController!.value = Matrix4.diagonal3Values(2, 2, 1);
+    await tester.pump();
+
+    expect(find.byTooltip('Đặt lại mức zoom ảnh'), findsOneWidget);
+    expect(
+      tester.widget<PageView>(find.byType(PageView)).physics,
+      isA<NeverScrollableScrollPhysics>(),
+    );
+
+    await tester.tap(find.byTooltip('Đặt lại mức zoom ảnh'));
+    await tester.pump();
+
+    expect(find.byTooltip('Đặt lại mức zoom ảnh'), findsNothing);
+    expect(tester.widget<PageView>(find.byType(PageView)).physics, isNull);
+  });
+
   testWidgets('viewer opens tone and lighting controls and applies a preset', (
     tester,
   ) async {

@@ -47,6 +47,20 @@ class _GhostOverlayWidgetState extends State<GhostOverlayWidget> {
   double _startingRotation = 0;
 
   @override
+  void didUpdateWidget(covariant GhostOverlayWidget oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final transform = widget.initialTransform;
+    if (transform.offsetX != _offset.dx ||
+        transform.offsetY != _offset.dy ||
+        transform.scale != _scale ||
+        transform.rotation != _rotation) {
+      _offset = Offset(transform.offsetX, transform.offsetY);
+      _scale = transform.scale;
+      _rotation = transform.rotation;
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
     return LayoutBuilder(
       builder: (context, constraints) {

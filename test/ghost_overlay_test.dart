@@ -120,6 +120,43 @@ void main() {
     expect(finalTransform!.offsetY, closeTo(25, 0.1));
   });
 
+  testWidgets('applies externally adjusted sample zoom', (tester) async {
+    const key = ValueKey('adjustable-ghost');
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: Scaffold(
+          body: GhostOverlayWidget(
+            key: key,
+            imagePath: 'missing_sample_image.jpg',
+            isAsset: false,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: Scaffold(
+          body: GhostOverlayWidget(
+            key: key,
+            imagePath: 'missing_sample_image.jpg',
+            isAsset: false,
+            initialTransform: GhostTransform(scale: 2),
+          ),
+        ),
+      ),
+    );
+
+    final transforms = tester
+        .widgetList<Transform>(
+          find.descendant(
+            of: find.byKey(key),
+            matching: find.byType(Transform),
+          ),
+        )
+        .toList();
+    expect(transforms.last.transform.storage[0], closeTo(2, 0.1));
+  });
+
   testWidgets('forwards preview taps and pinch updates', (tester) async {
     Offset? cameraTap;
     final cameraPointerCounts = <int>[];

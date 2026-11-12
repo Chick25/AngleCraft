@@ -20,7 +20,11 @@ class PoseMatchResult {
 }
 
 class PoseMatchingService {
-  static const _confidenceThreshold = 0.35;
+  static const _confidenceThreshold = 0.5;
+  static const _minimumCustomLandmarkCount = 6;
+  static const _minimumCustomCoverage = 0.8;
+  static const _customMatchDistance = 0.06;
+  static const _customScoreDistance = 0.18;
   static const _bodyLandmarks = [
     PoseLandmarkType.leftShoulder,
     PoseLandmarkType.rightShoulder,
@@ -50,7 +54,13 @@ class PoseMatchingService {
       }
       points[type.name] = Offset(landmark.x, landmark.y);
     }
-    if (points.length < 6) return null;
+    final hasShoulders =
+        points.containsKey(PoseLandmarkType.leftShoulder.name) &&
+        points.containsKey(PoseLandmarkType.rightShoulder.name);
+    final hasHips =
+        points.containsKey(PoseLandmarkType.leftHip.name) &&
+        points.containsKey(PoseLandmarkType.rightHip.name);
+    if (points.length < 8 || !hasShoulders || !hasHips) return null;
     return _normalizePoints(points);
   }
 
@@ -106,37 +116,124 @@ class PoseMatchingService {
       matchedPoints[entry.key] = (entry.value, Offset(detected.x, detected.y));
     }
 
-    if (matchedPoints.length < 6) {
+    final minimumLandmarks = math
+        .max(
+          _minimumCustomLandmarkCount,
+          (targetLandmarks.length * _minimumCustomCoverage).ceil(),
+        )
+        .clamp(0, targetLandmarks.length);
+    final hasRequiredShoulders =
+        !targetLandmarks.containsKey(PoseLandmarkType.leftShoulder.name) ||
+        matchedPoints.containsKey(PoseLandmarkType.leftShoulder.name);
+    final hasRequiredRightShoulder =
+        !targetLandmarks.containsKey(PoseLandmarkType.rightShoulder.name) ||
+        matchedPoints.containsKey(PoseLandmarkType.rightShoulder.name);
+    final hasRequiredLeftHip =
+        !targetLandmarks.containsKey(PoseLandmarkType.leftHip.name) ||
+        matchedPoints.containsKey(PoseLandmarkType.leftHip.name);
+    final hasRequiredRightHip =
+        !targetLandmarks.containsKey(PoseLandmarkType.rightHip.name) ||
+        matchedPoints.containsKey(PoseLandmarkType.rightHip.name);
+    if (matchedPoints.length < minimumLandmarks ||
+        !hasRequiredShoulders ||
+        !hasRequiredRightShoulder ||
+        !hasRequiredLeftHip ||
+        !hasRequiredRightHip) {
       return const PoseMatchResult(
         isSupported: true,
         isMatched: false,
         score: 0,
-        feedback: 'Đưa toàn thân vào khung hình để căn dáng tùy chỉnh.',
+        feedback: 'Đưa đủ các khớp chính của dáng mẫu vào khung hình.',
       );
     }
 
-    final targetPoints = _normalizePoints({
+    final targetPoints = {
       for (final entry in matchedPoints.entries) entry.key: entry.value.$1,
-    });
-    final detectedPoints = _normalizePoints({
+    };
+    final detectedPoints = {
       for (final entry in matchedPoints.entries) entry.key: entry.value.$2,
-    });
-    final meanDistance =
-        matchedPoints.keys
-            .map((key) => (targetPoints[key]! - detectedPoints[key]!).distance)
-            .reduce((first, second) => first + second) /
-        matchedPoints.length;
-    final score = (100 * (1 - meanDistance / 1.4142)).round().clamp(0, 100);
-    final isMatched = meanDistance <= 0.22;
+    };
+    final alignedPoints = _alignToTarget(targetPoints, detectedPoints);
+    final targetWidth = _range(targetPoints.values, (point) => point.dx);
+    final targetHeight = _range(targetPoints.values, (point) => point.dy);
+    final targetDiagonal = math.sqrt(
+      targetWidth * targetWidth + targetHeight * targetHeight,
+    );
+    if (targetDiagonal == 0) {
+      return const PoseMatchResult(
+        isSupported: true,
+        isMatched: false,
+        score: 0,
+        feedback: 'Ảnh mẫu không có đủ khoảng cách giữa các khớp.',
+      );
+    }
+    final normalizedDistances = matchedPoints.keys.map(
+      (key) =>
+          (targetPoints[key]! - alignedPoints[key]!).distance / targetDiagonal,
+    );
+    final meanDistance = math.sqrt(
+      normalizedDistances
+              .map((distance) => distance * distance)
+              .reduce((first, second) => first + second) /
+          matchedPoints.length,
+    );
+    final score = (100 * (1 - meanDistance / _customScoreDistance))
+        .round()
+        .clamp(0, 100);
+    final isMatched = meanDistance <= _customMatchDistance;
 
     return PoseMatchResult(
       isSupported: true,
       isMatched: isMatched,
       score: score,
       feedback: isMatched
-          ? 'Dáng gần khớp, hãy giữ ổn định!'
+          ? 'Dáng gần khớp ảnh mẫu, hãy giữ ổn định!'
           : 'Điều chỉnh tay và chân theo khung dáng mờ.',
     );
+  }
+
+  static Map<String, Offset> _alignToTarget(
+    Map<String, Offset> target,
+    Map<String, Offset> detected,
+  ) {
+    final targetCenter = _center(target.values);
+    final detectedCenter = _center(detected.values);
+    var numerator = 0.0;
+    var denominator = 0.0;
+    for (final key in target.keys) {
+      final targetOffset = target[key]! - targetCenter;
+      final detectedOffset = detected[key]! - detectedCenter;
+      numerator +=
+          targetOffset.dx * detectedOffset.dx +
+          targetOffset.dy * detectedOffset.dy;
+      denominator += detectedOffset.distanceSquared;
+    }
+    if (denominator == 0 || numerator <= 0) return detected;
+    final scale = (numerator / denominator).clamp(0.0, double.infinity);
+    return {
+      for (final key in detected.keys)
+        key: (detected[key]! - detectedCenter) * scale + targetCenter,
+    };
+  }
+
+  static Offset _center(Iterable<Offset> points) {
+    var x = 0.0;
+    var y = 0.0;
+    var count = 0;
+    for (final point in points) {
+      x += point.dx;
+      y += point.dy;
+      count++;
+    }
+    return Offset(x / count, y / count);
+  }
+
+  static double _range(
+    Iterable<Offset> points,
+    double Function(Offset) coordinate,
+  ) {
+    final values = points.map(coordinate);
+    return values.reduce(math.max) - values.reduce(math.min);
   }
 
   static Map<String, Offset> _normalizePoints(Map<String, Offset> points) {
@@ -144,13 +241,12 @@ class PoseMatchingService {
     final maxX = points.values.map((point) => point.dx).reduce(math.max);
     final minY = points.values.map((point) => point.dy).reduce(math.min);
     final maxY = points.values.map((point) => point.dy).reduce(math.max);
-    final width = maxX - minX;
-    final height = maxY - minY;
+    final scale = math.max(maxX - minX, maxY - minY);
     return {
       for (final entry in points.entries)
         entry.key: Offset(
-          width == 0 ? 0.5 : (entry.value.dx - minX) / width,
-          height == 0 ? 0.5 : (entry.value.dy - minY) / height,
+          scale == 0 ? 0.5 : (entry.value.dx - minX) / scale,
+          scale == 0 ? 0.5 : (entry.value.dy - minY) / scale,
         ),
     };
   }
@@ -161,12 +257,12 @@ class PoseMatchingService {
     double? rightElbow,
   ) {
     final elbows = [leftElbow, rightElbow].whereType<double>().toList();
-    if (elbows.isEmpty) {
+    if (elbows.length < 2) {
       return const PoseMatchResult(
         isSupported: true,
         isMatched: false,
         score: 0,
-        feedback: 'Đưa vai, khuỷu tay và cổ tay vào khung hình.',
+        feedback: 'Đưa đủ hai vai, khuỷu tay và cổ tay vào khung hình.',
       );
     }
 
@@ -184,10 +280,18 @@ class PoseMatchingService {
         PoseLandmarkType.rightAnkle,
       ),
     ].whereType<double>().toList();
+    if (knees.length < 2) {
+      return const PoseMatchResult(
+        isSupported: true,
+        isMatched: false,
+        score: 0,
+        feedback: 'Đưa đủ hông, đầu gối và mắt cá chân vào khung hình.',
+      );
+    }
     final armsStraight = elbows.every((angle) => angle >= 135);
-    final legsStraight = knees.isEmpty || knees.every((angle) => angle >= 140);
+    final legsStraight = knees.every((angle) => angle >= 140);
     final elbowScore = _angleScore(elbows, 165, 35);
-    final kneeScore = knees.isEmpty ? 100 : _angleScore(knees, 170, 35);
+    final kneeScore = _angleScore(knees, 170, 35);
     final score = ((elbowScore + kneeScore) / 2).round();
 
     return PoseMatchResult(
