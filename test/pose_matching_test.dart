@@ -141,6 +141,54 @@ void main() {
     expect(result.score, greaterThanOrEqualTo(95));
   });
 
+  test('scores a custom pose when some body landmarks are not visible', () {
+    const customPose = PoseItem(
+      id: 'custom-partial',
+      title: 'Custom pose',
+      description: 'Custom skeleton',
+      category: PoseCategory.travel,
+      style: PoseStyle.standing,
+      customLandmarks: {
+        'nose': Offset(0.5, 0.1),
+        'leftShoulder': Offset(0.4, 0.23),
+        'rightShoulder': Offset(0.6, 0.25),
+        'leftElbow': Offset(0.34, 0.37),
+        'leftWrist': Offset(0.35, 0.49),
+        'rightElbow': Offset(0.73, 0.29),
+        'rightWrist': Offset(0.88, 0.29),
+        'leftHip': Offset(0.44, 0.52),
+        'rightHip': Offset(0.58, 0.54),
+        'leftKnee': Offset(0.42, 0.73),
+        'rightKnee': Offset(0.63, 0.73),
+        'leftAnkle': Offset(0.40, 0.94),
+        'rightAnkle': Offset(0.66, 0.94),
+      },
+    );
+    const visibleLandmarks = {
+      'leftShoulder',
+      'rightShoulder',
+      'leftElbow',
+      'rightElbow',
+      'leftWrist',
+      'rightWrist',
+      'leftHip',
+      'rightHip',
+    };
+    final detectedPose = _createPose({
+      for (final entry in customPose.customLandmarks!.entries)
+        if (visibleLandmarks.contains(entry.key))
+          PoseLandmarkType.values.byName(entry.key): (
+            entry.value.dx * 100,
+            entry.value.dy * 100,
+          ),
+    });
+
+    final result = PoseMatchingService.evaluate(detectedPose, customPose);
+
+    expect(result.isMatched, isTrue);
+    expect(result.score, 100);
+  });
+
   test('matches a custom pose when the person is scaled and repositioned', () {
     final target = PoseItem(
       id: 'uploaded-reference',

@@ -22,7 +22,7 @@ class PoseMatchResult {
 class PoseMatchingService {
   static const _confidenceThreshold = 0.5;
   static const _minimumCustomLandmarkCount = 6;
-  static const _minimumCustomCoverage = 0.8;
+  static const _minimumCustomCoverage = 0.6;
   static const _customMatchDistance = 0.06;
   static const _customScoreDistance = 0.18;
   static const _bodyLandmarks = [
