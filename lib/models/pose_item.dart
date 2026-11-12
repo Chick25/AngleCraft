@@ -30,6 +30,7 @@ class PoseItem {
   final PoseCategory category;
   final PoseStyle style;
   final Map<String, Offset>? customLandmarks;
+  final bool landmarksAreViewerRelative;
 
   const PoseItem({
     required this.id,
@@ -38,6 +39,7 @@ class PoseItem {
     required this.category,
     required this.style,
     this.customLandmarks,
+    this.landmarksAreViewerRelative = false,
   });
 
   bool get isCustom => customLandmarks != null;
@@ -48,12 +50,14 @@ class PoseItem {
     'description': description,
     'category': category.name,
     'style': style.name,
+    'landmarksAreViewerRelative': landmarksAreViewerRelative,
     'customLandmarks': customLandmarks?.map(
       (name, point) => MapEntry(name, [point.dx, point.dy]),
     ),
   };
 
   factory PoseItem.fromMap(Map<dynamic, dynamic> map) {
+    final id = map['id'] as String;
     final rawLandmarks = map['customLandmarks'] as Map<dynamic, dynamic>?;
     final landmarks = rawLandmarks?.map((name, rawPoint) {
       final point = rawPoint as List<dynamic>;
@@ -64,12 +68,15 @@ class PoseItem {
     });
 
     return PoseItem(
-      id: map['id'] as String,
+      id: id,
       title: map['title'] as String,
       description: map['description'] as String,
       category: PoseCategory.values.byName(map['category'] as String),
       style: PoseStyle.values.byName(map['style'] as String),
       customLandmarks: landmarks,
+      landmarksAreViewerRelative:
+          map['landmarksAreViewerRelative'] as bool? ??
+          id.startsWith('custom-'),
     );
   }
 }

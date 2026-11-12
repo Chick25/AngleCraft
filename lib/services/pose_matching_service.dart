@@ -39,6 +39,20 @@ class PoseMatchingService {
     PoseLandmarkType.leftAnkle,
     PoseLandmarkType.rightAnkle,
   ];
+  static const _oppositeSideLandmarks = {
+    PoseLandmarkType.leftShoulder: PoseLandmarkType.rightShoulder,
+    PoseLandmarkType.rightShoulder: PoseLandmarkType.leftShoulder,
+    PoseLandmarkType.leftElbow: PoseLandmarkType.rightElbow,
+    PoseLandmarkType.rightElbow: PoseLandmarkType.leftElbow,
+    PoseLandmarkType.leftWrist: PoseLandmarkType.rightWrist,
+    PoseLandmarkType.rightWrist: PoseLandmarkType.leftWrist,
+    PoseLandmarkType.leftHip: PoseLandmarkType.rightHip,
+    PoseLandmarkType.rightHip: PoseLandmarkType.leftHip,
+    PoseLandmarkType.leftKnee: PoseLandmarkType.rightKnee,
+    PoseLandmarkType.rightKnee: PoseLandmarkType.leftKnee,
+    PoseLandmarkType.leftAnkle: PoseLandmarkType.rightAnkle,
+    PoseLandmarkType.rightAnkle: PoseLandmarkType.leftAnkle,
+  };
 
   static bool supports(PoseItem pose) =>
       pose.isCustom ||
@@ -109,7 +123,10 @@ class PoseMatchingService {
     final matchedPoints = <String, (Offset, Offset)>{};
     for (final entry in targetLandmarks.entries) {
       final type = PoseLandmarkType.values.byName(entry.key);
-      final detected = pose.landmarks[type];
+      final detectedType = target.landmarksAreViewerRelative
+          ? _oppositeSideLandmarks[type] ?? type
+          : type;
+      final detected = pose.landmarks[detectedType];
       if (detected == null || detected.likelihood < _confidenceThreshold) {
         continue;
       }

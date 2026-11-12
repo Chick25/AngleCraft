@@ -141,6 +141,59 @@ void main() {
     expect(result.score, greaterThanOrEqualTo(95));
   });
 
+  test('matches manually authored poses against anatomical left and right', () {
+    const customPose = PoseItem(
+      id: 'custom-viewer-relative',
+      title: 'Custom pose',
+      description: 'Custom skeleton',
+      category: PoseCategory.travel,
+      style: PoseStyle.standing,
+      landmarksAreViewerRelative: true,
+      customLandmarks: {
+        'nose': Offset(0.5, 0.1),
+        'leftShoulder': Offset(0.4, 0.23),
+        'rightShoulder': Offset(0.6, 0.25),
+        'leftElbow': Offset(0.34, 0.37),
+        'leftWrist': Offset(0.35, 0.49),
+        'rightElbow': Offset(0.73, 0.29),
+        'rightWrist': Offset(0.88, 0.29),
+        'leftHip': Offset(0.44, 0.52),
+        'rightHip': Offset(0.58, 0.54),
+        'leftKnee': Offset(0.42, 0.73),
+        'rightKnee': Offset(0.63, 0.73),
+        'leftAnkle': Offset(0.40, 0.94),
+        'rightAnkle': Offset(0.66, 0.94),
+      },
+    );
+    const oppositeSide = {
+      PoseLandmarkType.leftShoulder: PoseLandmarkType.rightShoulder,
+      PoseLandmarkType.rightShoulder: PoseLandmarkType.leftShoulder,
+      PoseLandmarkType.leftElbow: PoseLandmarkType.rightElbow,
+      PoseLandmarkType.rightElbow: PoseLandmarkType.leftElbow,
+      PoseLandmarkType.leftWrist: PoseLandmarkType.rightWrist,
+      PoseLandmarkType.rightWrist: PoseLandmarkType.leftWrist,
+      PoseLandmarkType.leftHip: PoseLandmarkType.rightHip,
+      PoseLandmarkType.rightHip: PoseLandmarkType.leftHip,
+      PoseLandmarkType.leftKnee: PoseLandmarkType.rightKnee,
+      PoseLandmarkType.rightKnee: PoseLandmarkType.leftKnee,
+      PoseLandmarkType.leftAnkle: PoseLandmarkType.rightAnkle,
+      PoseLandmarkType.rightAnkle: PoseLandmarkType.leftAnkle,
+    };
+    final detectedPose = _createPose({
+      for (final entry in customPose.customLandmarks!.entries)
+        oppositeSide[PoseLandmarkType.values.byName(entry.key)] ??
+            PoseLandmarkType.values.byName(entry.key): (
+          entry.value.dx * 100,
+          entry.value.dy * 100,
+        ),
+    });
+
+    final result = PoseMatchingService.evaluate(detectedPose, customPose);
+
+    expect(result.isMatched, isTrue);
+    expect(result.score, 100);
+  });
+
   test('scores a custom pose when some body landmarks are not visible', () {
     const customPose = PoseItem(
       id: 'custom-partial',
@@ -354,6 +407,10 @@ void main() {
     expect(restored.id, customPose.id);
     expect(restored.title, customPose.title);
     expect(restored.customLandmarks, customPose.customLandmarks);
+
+    final legacyMap = Map<String, dynamic>.from(customPose.toMap())
+      ..remove('landmarksAreViewerRelative');
+    expect(PoseItem.fromMap(legacyMap).landmarksAreViewerRelative, isTrue);
   });
 }
 

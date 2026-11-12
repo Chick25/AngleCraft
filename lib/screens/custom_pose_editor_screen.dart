@@ -106,6 +106,7 @@ class _CustomPoseEditorScreenState extends State<CustomPoseEditorScreen> {
     category: PoseCategory.travel,
     style: PoseStyle.standing,
     customLandmarks: _landmarks,
+    landmarksAreViewerRelative: true,
   );
 
   void _selectScene(String scene) {
@@ -171,6 +172,7 @@ class _CustomPoseEditorScreenState extends State<CustomPoseEditorScreen> {
       category: PoseCategory.travel,
       style: PoseStyle.standing,
       customLandmarks: Map.of(_landmarks),
+      landmarksAreViewerRelative: true,
     );
 
     setState(() => _isSaving = true);
