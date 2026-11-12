@@ -30,6 +30,8 @@ class CameraScreen extends StatefulWidget {
 }
 
 class _CameraScreenState extends State<CameraScreen> {
+  static const _poseFrameInterval = Duration(milliseconds: 100);
+
   final CameraService _cameraService = CameraService();
   final PoseDetectionService _poseDetectionService = PoseDetectionService();
   final SensorService _sensorService = SensorService();
@@ -79,6 +81,7 @@ class _CameraScreenState extends State<CameraScreen> {
   bool _isCameraPinchZoomEnabled = false;
   bool _isZoomControlVisible = false;
   bool _isPoseAssistEnabled = false;
+  DateTime? _lastPoseFrameStartedAt;
   int _poseMatchStreak = 0;
   DetectedPoseFrame? _detectedPoseFrame;
   PoseMatchResult? _poseMatchResult;
@@ -631,6 +634,7 @@ class _CameraScreenState extends State<CameraScreen> {
 
     setState(() {
       _isPoseAssistEnabled = true;
+      _lastPoseFrameStartedAt = null;
       _poseMatchStreak = 0;
       _detectedPoseFrame = null;
       _poseMatchResult = null;
@@ -993,6 +997,7 @@ class _CameraScreenState extends State<CameraScreen> {
     if (mounted) {
       setState(() {
         _isPoseAssistEnabled = false;
+        _lastPoseFrameStartedAt = null;
         _poseMatchStreak = 0;
         _detectedPoseFrame = null;
         _poseMatchResult = null;
@@ -1013,6 +1018,14 @@ class _CameraScreenState extends State<CameraScreen> {
   ) async {
     final targetPose = _selectedCatalogPose ?? _selectedUploadedPose;
     if (!_isPoseAssistEnabled || targetPose == null) return;
+    final now = DateTime.now();
+    final lastFrameStartedAt = _lastPoseFrameStartedAt;
+    if (lastFrameStartedAt != null &&
+        now.difference(lastFrameStartedAt) < _poseFrameInterval) {
+      return;
+    }
+    _lastPoseFrameStartedAt = now;
+
     try {
       final frame = await _poseDetectionService.processImage(
         image,

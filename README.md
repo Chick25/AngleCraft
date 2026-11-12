@@ -20,7 +20,10 @@ catalog styles are currently manual guides only.
 
 Camera frames and reference photos are processed locally with Google ML Kit.
 The Android camera stream uses NV21, the format required by the ML Kit plugin.
-Frames are skipped while the detector is busy to avoid building up latency.
+Pose guidance is optional and processes at most 10 camera frames per second;
+frames are skipped while the detector is busy to avoid building up latency.
+The level indicator samples motion sensors at 20 Hz to reduce unnecessary
+sensor and UI work while keeping the guide responsive.
 This feature is currently Android-only; the existing camera and manual overlay
 continue to work on other platforms.
 

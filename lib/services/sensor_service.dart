@@ -7,17 +7,19 @@ typedef SensorLevelCallback = void Function(double roll, double pitch);
 typedef SensorErrorCallback = void Function(Object error);
 
 class SensorService {
+  static const _samplingPeriod = Duration(milliseconds: 50);
+
   SensorService({
     Stream<AccelerometerEvent>? accelerometerEvents,
     Stream<GyroscopeEvent>? gyroscopeEvents,
   }) : _accelerometerEvents =
            accelerometerEvents ??
            accelerometerEventStream(
-             samplingPeriod: SensorInterval.gameInterval,
+             samplingPeriod: _samplingPeriod,
            ),
        _gyroscopeEvents =
            gyroscopeEvents ??
-           gyroscopeEventStream(samplingPeriod: SensorInterval.gameInterval);
+           gyroscopeEventStream(samplingPeriod: _samplingPeriod);
 
   static const double _gravityFilterFactor = 0.12;
   static const double _complementaryFilterFactor = 0.98;
