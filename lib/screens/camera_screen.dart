@@ -45,7 +45,9 @@ class _CameraScreenState extends State<CameraScreen> {
   PoseItem? _selectedCatalogPose;
   PoseItem? _selectedUploadedPose;
   String? _uploadedPoseError;
-  GhostTransform _ghostTransform = const GhostTransform();
+  final ValueNotifier<GhostTransform> _ghostTransform = ValueNotifier(
+    const GhostTransform(),
+  );
   bool _isPickingPose = false;
   int _ghostRevision = 0;
 
@@ -110,6 +112,7 @@ class _CameraScreenState extends State<CameraScreen> {
     unawaited(_releaseCameraResources());
     _sensorService.stopListening();
     _levelReading.dispose();
+    _ghostTransform.dispose();
     super.dispose();
   }
 
@@ -280,7 +283,7 @@ class _CameraScreenState extends State<CameraScreen> {
         _selectedCatalogPose = null;
         _selectedUploadedPose = null;
         _uploadedPoseError = null;
-        _ghostTransform = const GhostTransform();
+        _ghostTransform.value = const GhostTransform();
         _ghostRevision++;
       });
       if (kIsWeb || defaultTargetPlatform != TargetPlatform.android) {
@@ -347,20 +350,18 @@ class _CameraScreenState extends State<CameraScreen> {
 
   void _resetGhostTransform() {
     setState(() {
-      _ghostTransform = const GhostTransform();
+      _ghostTransform.value = const GhostTransform();
       _ghostRevision++;
     });
   }
 
   void _setGhostScale(double scale) {
-    setState(() {
-      _ghostTransform = GhostTransform(
-        offsetX: _ghostTransform.offsetX,
-        offsetY: _ghostTransform.offsetY,
-        scale: scale,
-        rotation: _ghostTransform.rotation,
-      );
-    });
+    _ghostTransform.value = GhostTransform(
+      offsetX: _ghostTransform.value.offsetX,
+      offsetY: _ghostTransform.value.offsetY,
+      scale: scale,
+      rotation: _ghostTransform.value.rotation,
+    );
   }
 
   void _removeGhostImage() {
@@ -370,7 +371,7 @@ class _CameraScreenState extends State<CameraScreen> {
       _selectedCatalogPose = null;
       _selectedUploadedPose = null;
       _uploadedPoseError = null;
-      _ghostTransform = const GhostTransform();
+      _ghostTransform.value = const GhostTransform();
     });
   }
 
@@ -386,7 +387,7 @@ class _CameraScreenState extends State<CameraScreen> {
       _selectedPosePath = null;
       _selectedUploadedPose = null;
       _uploadedPoseError = null;
-      _ghostTransform = const GhostTransform();
+      _ghostTransform.value = const GhostTransform();
       _ghostRevision++;
       _poseMatchStreak = 0;
       _detectedPoseFrame = null;
@@ -421,7 +422,7 @@ class _CameraScreenState extends State<CameraScreen> {
       _selectedPosePath = pose == null ? angle.ghostImagePath : null;
       _selectedUploadedPose = null;
       _uploadedPoseError = null;
-      _ghostTransform = angle.ghostTransform;
+      _ghostTransform.value = angle.ghostTransform;
       _ghostOpacity = angle.ghostOpacity;
       _gridOpacity = angle.gridOpacity;
       _isGridVisible = angle.isGridVisible;
@@ -448,7 +449,7 @@ class _CameraScreenState extends State<CameraScreen> {
       isGridVisible: _isGridVisible,
       gridOpacity: _gridOpacity,
       ghostOpacity: _ghostOpacity,
-      ghostTransform: _ghostTransform,
+      ghostTransform: _ghostTransform.value,
     );
   }
 
@@ -1157,28 +1158,30 @@ class _CameraScreenState extends State<CameraScreen> {
                         ),
                         if (_selectedPosePath != null ||
                             _selectedCatalogPose != null)
-                          GhostOverlayWidget(
-                            key: ValueKey(
-                              '${_selectedCatalogPose?.id ?? _selectedPosePath}-$_ghostRevision',
-                            ),
-                            imagePath: _selectedPosePath,
-                            pose: _selectedCatalogPose,
-                            opacity: _ghostOpacity,
-                            isAsset: false,
-                            initialTransform: _ghostTransform,
-                            onCameraTap: _focusAt,
-                            onExposureDoubleTap: _toggleExposureControl,
-                            onCameraScaleStart: _isCameraPinchZoomEnabled
-                                ? _startCameraZoomGesture
-                                : null,
-                            onCameraScaleUpdate: _isCameraPinchZoomEnabled
-                                ? _updateCameraZoomGesture
-                                : null,
-                            onTransformEnd: (transform) {
-                              if (mounted) {
-                                setState(() => _ghostTransform = transform);
-                              }
-                            },
+                          ValueListenableBuilder<GhostTransform>(
+                            valueListenable: _ghostTransform,
+                            builder: (context, transform, child) =>
+                                GhostOverlayWidget(
+                                  key: ValueKey(
+                                    '${_selectedCatalogPose?.id ?? _selectedPosePath}-$_ghostRevision',
+                                  ),
+                                  imagePath: _selectedPosePath,
+                                  pose: _selectedCatalogPose,
+                                  opacity: _ghostOpacity,
+                                  isAsset: false,
+                                  initialTransform: transform,
+                                  onCameraTap: _focusAt,
+                                  onExposureDoubleTap: _toggleExposureControl,
+                                  onCameraScaleStart: _isCameraPinchZoomEnabled
+                                      ? _startCameraZoomGesture
+                                      : null,
+                                  onCameraScaleUpdate: _isCameraPinchZoomEnabled
+                                      ? _updateCameraZoomGesture
+                                      : null,
+                                  onTransformEnd: (transform) {
+                                    _ghostTransform.value = transform;
+                                  },
+                                ),
                           ),
                         if (_isPoseAssistEnabled &&
                             _detectedPoseFrame?.pose != null &&
@@ -1233,275 +1236,314 @@ class _CameraScreenState extends State<CameraScreen> {
 
           // 4. Tầng giao diện điều khiển (Control Panel & Thước cân bằng ở trên cùng)
           SafeArea(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                // Header thanh công cụ trên (Tỷ lệ ảnh, bật tắt flash, v.v.)
-                if (!_isCapturing)
-                  Padding(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 16.0,
-                      vertical: 8.0,
-                    ),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            const Text(
-                              "AngleCraft",
-                              style: TextStyle(
-                                color: Colors.white,
-                                fontSize: 18,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                            Row(
-                              children: [
-                                IconButton(
-                                  tooltip: _isPoseAssistEnabled
-                                      ? 'Tắt hướng dẫn dáng bằng AI'
-                                      : 'Bật hướng dẫn dáng bằng AI',
-                                  icon: Icon(
-                                    Icons.center_focus_strong,
-                                    color: _isPoseAssistEnabled
-                                        ? (_poseMatchStreak >= 3
-                                              ? Colors.greenAccent
-                                              : Colors.yellowAccent)
-                                        : Colors.white,
+            child: LayoutBuilder(
+              builder: (context, constraints) => Column(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  // Header thanh công cụ trên (Tỷ lệ ảnh, bật tắt flash, v.v.)
+                  if (!_isCapturing)
+                    Flexible(
+                      fit: FlexFit.loose,
+                      child: SingleChildScrollView(
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 16.0,
+                            vertical: 8.0,
+                          ),
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Row(
+                                mainAxisAlignment:
+                                    MainAxisAlignment.spaceBetween,
+                                children: [
+                                  const Text(
+                                    "AngleCraft",
+                                    style: TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 18,
+                                      fontWeight: FontWeight.bold,
+                                    ),
                                   ),
-                                  onPressed: _togglePoseAssist,
-                                ),
-                                IconButton(
-                                  tooltip: 'Mở thư viện dáng chụp',
-                                  icon: const Icon(
-                                    Icons.accessibility_new,
-                                    color: Colors.white,
-                                  ),
-                                  onPressed: _selectCatalogPose,
-                                ),
-                                PopupMenuButton<GridType>(
-                                  tooltip: 'Chọn kiểu lưới',
-                                  initialValue: _gridType,
-                                  onSelected: (type) =>
-                                      setState(() => _gridType = type),
-                                  itemBuilder: (context) => GridType.values
-                                      .map(
-                                        (type) => PopupMenuItem<GridType>(
-                                          value: type,
-                                          child: Text(_gridLabel(type)),
+                                  Row(
+                                    children: [
+                                      IconButton(
+                                        tooltip: _isPoseAssistEnabled
+                                            ? 'Tắt hướng dẫn dáng bằng AI'
+                                            : 'Bật hướng dẫn dáng bằng AI',
+                                        icon: Icon(
+                                          Icons.center_focus_strong,
+                                          color: _isPoseAssistEnabled
+                                              ? (_poseMatchStreak >= 3
+                                                    ? Colors.greenAccent
+                                                    : Colors.yellowAccent)
+                                              : Colors.white,
                                         ),
-                                      )
-                                      .toList(),
-                                  icon: const Icon(
-                                    Icons.grid_4x4,
-                                    color: Colors.white,
+                                        onPressed: _togglePoseAssist,
+                                      ),
+                                      IconButton(
+                                        tooltip: 'Mở thư viện dáng chụp',
+                                        icon: const Icon(
+                                          Icons.accessibility_new,
+                                          color: Colors.white,
+                                        ),
+                                        onPressed: _selectCatalogPose,
+                                      ),
+                                      PopupMenuButton<GridType>(
+                                        tooltip: 'Chọn kiểu lưới',
+                                        initialValue: _gridType,
+                                        onSelected: (type) =>
+                                            setState(() => _gridType = type),
+                                        itemBuilder: (context) => GridType
+                                            .values
+                                            .map(
+                                              (type) => PopupMenuItem<GridType>(
+                                                value: type,
+                                                child: Text(_gridLabel(type)),
+                                              ),
+                                            )
+                                            .toList(),
+                                        icon: const Icon(
+                                          Icons.grid_4x4,
+                                          color: Colors.white,
+                                        ),
+                                      ),
+                                      IconButton(
+                                        tooltip: _isGridVisible
+                                            ? 'Ẩn lưới'
+                                            : 'Hiện lưới',
+                                        icon: Icon(
+                                          _isGridVisible
+                                              ? Icons.grid_on
+                                              : Icons.grid_off,
+                                          color: Colors.white,
+                                        ),
+                                        onPressed: () => setState(
+                                          () =>
+                                              _isGridVisible = !_isGridVisible,
+                                        ),
+                                      ),
+                                    ],
                                   ),
-                                ),
-                                IconButton(
-                                  tooltip: _isGridVisible
-                                      ? 'Ẩn lưới'
-                                      : 'Hiện lưới',
-                                  icon: Icon(
-                                    _isGridVisible
-                                        ? Icons.grid_on
-                                        : Icons.grid_off,
-                                    color: Colors.white,
-                                  ),
-                                  onPressed: () => setState(
-                                    () => _isGridVisible = !_isGridVisible,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ],
-                        ),
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.end,
-                          children: [
-                            IconButton(
-                              tooltip: 'Mở bộ sưu tập ảnh',
-                              onPressed: _openGallery,
-                              icon: const Icon(
-                                Icons.photo_library_outlined,
-                                color: Colors.white,
+                                ],
                               ),
-                            ),
-                            IconButton(
-                              tooltip: 'Mở Angle Vault',
-                              onPressed: _openAngleVault,
-                              icon: const Icon(
-                                Icons.bookmarks_outlined,
-                                color: Colors.yellowAccent,
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.end,
+                                children: [
+                                  IconButton(
+                                    tooltip: 'Mở bộ sưu tập ảnh',
+                                    onPressed: _openGallery,
+                                    icon: const Icon(
+                                      Icons.photo_library_outlined,
+                                      color: Colors.white,
+                                    ),
+                                  ),
+                                  IconButton(
+                                    tooltip: 'Mở Angle Vault',
+                                    onPressed: _openAngleVault,
+                                    icon: const Icon(
+                                      Icons.bookmarks_outlined,
+                                      color: Colors.yellowAccent,
+                                    ),
+                                  ),
+                                ],
                               ),
-                            ),
-                          ],
-                        ),
-                        if (_selectedPosePath != null ||
-                            _selectedCatalogPose != null)
-                          Align(
-                            alignment: Alignment.centerRight,
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                _GhostActionButton(
-                                  tooltip: _isCameraPinchZoomEnabled
-                                      ? 'Pinch đang zoom camera · Chạm để chỉnh mẫu'
-                                      : 'Pinch đang chỉnh mẫu · Chạm để zoom camera',
-                                  icon: _isCameraPinchZoomEnabled
-                                      ? Icons.pan_tool_alt
-                                      : Icons.camera_alt_outlined,
-                                  label: _isCameraPinchZoomEnabled
-                                      ? 'Chỉnh mẫu'
-                                      : 'Zoom camera',
-                                  onPressed: () => setState(
-                                    () => _isCameraPinchZoomEnabled =
-                                        !_isCameraPinchZoomEnabled,
+                              if (_selectedPosePath != null ||
+                                  _selectedCatalogPose != null)
+                                Align(
+                                  alignment: Alignment.centerRight,
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      _GhostActionButton(
+                                        tooltip: _isCameraPinchZoomEnabled
+                                            ? 'Pinch đang zoom camera · Chạm để chỉnh mẫu'
+                                            : 'Pinch đang chỉnh mẫu · Chạm để zoom camera',
+                                        icon: _isCameraPinchZoomEnabled
+                                            ? Icons.pan_tool_alt
+                                            : Icons.camera_alt_outlined,
+                                        label: _isCameraPinchZoomEnabled
+                                            ? 'Chỉnh mẫu'
+                                            : 'Zoom camera',
+                                        onPressed: () => setState(
+                                          () => _isCameraPinchZoomEnabled =
+                                              !_isCameraPinchZoomEnabled,
+                                        ),
+                                      ),
+                                      const SizedBox(width: 8),
+                                      _GhostActionButton(
+                                        tooltip:
+                                            'Đặt lại vị trí và kích thước mẫu',
+                                        icon: Icons.restart_alt,
+                                        onPressed: _resetGhostTransform,
+                                      ),
+                                      const SizedBox(width: 8),
+                                      _GhostActionButton(
+                                        tooltip: 'Gỡ mẫu',
+                                        icon: Icons.close,
+                                        onPressed: _removeGhostImage,
+                                      ),
+                                    ],
                                   ),
                                 ),
-                                const SizedBox(width: 8),
-                                _GhostActionButton(
-                                  tooltip: 'Đặt lại vị trí và kích thước mẫu',
-                                  icon: Icons.restart_alt,
-                                  onPressed: _resetGhostTransform,
+                              if (!_isCameraPinchZoomEnabled &&
+                                  (_selectedPosePath != null ||
+                                      _selectedCatalogPose != null))
+                                Container(
+                                  margin: const EdgeInsets.only(top: 8),
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 12,
+                                    vertical: 2,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: Colors.black54,
+                                    borderRadius: BorderRadius.circular(20),
+                                  ),
+                                  child: Row(
+                                    children: [
+                                      const Icon(
+                                        Icons.image_outlined,
+                                        color: Colors.white70,
+                                      ),
+                                      Expanded(
+                                        child:
+                                            ValueListenableBuilder<
+                                              GhostTransform
+                                            >(
+                                              valueListenable: _ghostTransform,
+                                              builder:
+                                                  (context, transform, child) =>
+                                                      Slider(
+                                                        key: const ValueKey(
+                                                          'ghost-scale-slider',
+                                                        ),
+                                                        min: 0.5,
+                                                        max: 4,
+                                                        value: transform.scale
+                                                            .clamp(0.5, 4)
+                                                            .toDouble(),
+                                                        activeColor:
+                                                            Colors.yellowAccent,
+                                                        onChanged:
+                                                            _setGhostScale,
+                                                      ),
+                                            ),
+                                      ),
+                                      SizedBox(
+                                        width: 42,
+                                        child:
+                                            ValueListenableBuilder<
+                                              GhostTransform
+                                            >(
+                                              valueListenable: _ghostTransform,
+                                              builder:
+                                                  (
+                                                    context,
+                                                    transform,
+                                                    child,
+                                                  ) => Text(
+                                                    '${transform.scale.toStringAsFixed(1)}x',
+                                                    style: const TextStyle(
+                                                      color: Colors.white,
+                                                    ),
+                                                    textAlign: TextAlign.end,
+                                                  ),
+                                            ),
+                                      ),
+                                    ],
+                                  ),
                                 ),
-                                const SizedBox(width: 8),
-                                _GhostActionButton(
-                                  tooltip: 'Gỡ mẫu',
-                                  icon: Icons.close,
-                                  onPressed: _removeGhostImage,
-                                ),
-                              ],
-                            ),
+                              const SizedBox(height: 8),
+                              ValueListenableBuilder<
+                                ({double roll, double pitch})?
+                              >(
+                                valueListenable: _levelReading,
+                                builder: (context, reading, child) =>
+                                    LevelIndicatorWidget(
+                                      roll: reading?.roll ?? 0,
+                                      pitch: reading?.pitch ?? 0,
+                                      isAvailable:
+                                          reading != null &&
+                                          _sensorError == null,
+                                      errorMessage:
+                                          _sensorError ?? 'Đang đọc cảm biến',
+                                    ),
+                              ),
+                            ],
                           ),
-                        if (!_isCameraPinchZoomEnabled &&
-                            (_selectedPosePath != null ||
-                                _selectedCatalogPose != null))
-                          Container(
-                            margin: const EdgeInsets.only(top: 8),
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 12,
-                              vertical: 2,
-                            ),
-                            decoration: BoxDecoration(
-                              color: Colors.black54,
-                              borderRadius: BorderRadius.circular(20),
-                            ),
-                            child: Row(
-                              children: [
-                                const Icon(
-                                  Icons.image_outlined,
-                                  color: Colors.white70,
-                                ),
-                                Expanded(
-                                  child: Slider(
-                                    key: const ValueKey('ghost-scale-slider'),
-                                    min: 0.5,
-                                    max: 4,
-                                    value: _ghostTransform.scale
-                                        .clamp(0.5, 4)
-                                        .toDouble(),
-                                    activeColor: Colors.yellowAccent,
-                                    onChanged: _setGhostScale,
-                                  ),
-                                ),
-                                SizedBox(
-                                  width: 42,
-                                  child: Text(
-                                    '${_ghostTransform.scale.toStringAsFixed(1)}x',
-                                    style: const TextStyle(color: Colors.white),
-                                    textAlign: TextAlign.end,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        const SizedBox(height: 8),
-                        ValueListenableBuilder<({double roll, double pitch})?>(
-                          valueListenable: _levelReading,
-                          builder: (context, reading, child) =>
-                              LevelIndicatorWidget(
-                                roll: reading?.roll ?? 0,
-                                pitch: reading?.pitch ?? 0,
-                                isAvailable:
-                                    reading != null && _sensorError == null,
-                                errorMessage:
-                                    _sensorError ?? 'Đang đọc cảm biến',
-                              ),
                         ),
-                      ],
+                      ),
                     ),
-                  ),
 
-                if (!_isCapturing && _isPoseAssistEnabled)
-                  _buildPoseAssistStatus(),
+                  if (!_isCapturing && _isPoseAssistEnabled)
+                    _buildPoseAssistStatus(),
 
-                if (!_isCapturing) _buildZoomControl(),
+                  if (!_isCapturing) _buildZoomControl(),
 
-                // Footer nút chụp ảnh và chọn dáng
-                if (!_isCapturing)
-                  Padding(
-                    padding: const EdgeInsets.all(24.0),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceAround,
-                      children: [
-                        // Nút mở bộ sưu tập chọn dáng
-                        IconButton(
-                          icon: _isPickingPose
-                              ? const SizedBox(
-                                  width: 24,
-                                  height: 24,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                    color: Colors.yellowAccent,
+                  // Footer nút chụp ảnh và chọn dáng
+                  if (!_isCapturing)
+                    Padding(
+                      padding: const EdgeInsets.all(24.0),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceAround,
+                        children: [
+                          // Nút mở bộ sưu tập chọn dáng
+                          IconButton(
+                            icon: _isPickingPose
+                                ? const SizedBox(
+                                    width: 24,
+                                    height: 24,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      color: Colors.yellowAccent,
+                                    ),
+                                  )
+                                : const Icon(
+                                    Icons.add_photo_alternate_outlined,
+                                    color: Colors.white,
+                                    size: 32,
                                   ),
-                                )
-                              : const Icon(
-                                  Icons.add_photo_alternate_outlined,
-                                  color: Colors.white,
-                                  size: 32,
-                                ),
-                          tooltip: _selectedPosePath == null
-                              ? 'Chọn ảnh mẫu từ thư viện'
-                              : 'Đổi ảnh mẫu',
-                          onPressed: _isPickingPose ? null : _pickGhostImage,
-                        ),
-                        // Nút chụp ảnh chính
-                        FloatingActionButton(
-                          backgroundColor: Colors.yellowAccent,
-                          onPressed: _isCaptureInProgress
-                              ? null
-                              : _capturePhoto,
-                          child: _isCaptureInProgress
-                              ? const SizedBox(
-                                  width: 26,
-                                  height: 26,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 3,
+                            tooltip: _selectedPosePath == null
+                                ? 'Chọn ảnh mẫu từ thư viện'
+                                : 'Đổi ảnh mẫu',
+                            onPressed: _isPickingPose ? null : _pickGhostImage,
+                          ),
+                          // Nút chụp ảnh chính
+                          FloatingActionButton(
+                            backgroundColor: Colors.yellowAccent,
+                            onPressed: _isCaptureInProgress
+                                ? null
+                                : _capturePhoto,
+                            child: _isCaptureInProgress
+                                ? const SizedBox(
+                                    width: 26,
+                                    height: 26,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 3,
+                                      color: Colors.black,
+                                    ),
+                                  )
+                                : const Icon(
+                                    Icons.camera,
                                     color: Colors.black,
+                                    size: 36,
                                   ),
-                                )
-                              : const Icon(
-                                  Icons.camera,
-                                  color: Colors.black,
-                                  size: 36,
-                                ),
-                        ),
-                        // Nút cài đặt/thêm hiệu ứng
-                        IconButton(
-                          icon: const Icon(
-                            Icons.tune,
-                            color: Colors.white,
-                            size: 32,
                           ),
-                          tooltip: 'Điều chỉnh độ mờ',
-                          onPressed: _showGridSettings,
-                        ),
-                      ],
+                          // Nút cài đặt/thêm hiệu ứng
+                          IconButton(
+                            icon: const Icon(
+                              Icons.tune,
+                              color: Colors.white,
+                              size: 32,
+                            ),
+                            tooltip: 'Điều chỉnh độ mờ',
+                            onPressed: _showGridSettings,
+                          ),
+                        ],
+                      ),
                     ),
-                  ),
-              ],
+                ],
+              ),
             ),
           ),
         ],
