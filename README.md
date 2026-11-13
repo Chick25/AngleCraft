@@ -2,6 +2,17 @@
 
 A new Flutter project.
 
+## Grid Alignment Guidance
+
+The camera shows a short alignment hint for the selected composition grid:
+rule of thirds, golden ratio, golden triangle, or diagonals. On Android,
+optionally enable AI grid guidance to detect a person and suggest how to move
+their focal point toward a useful grid point or line. This uses the existing
+on-device pose detector, processes at most 10 camera frames per second, and
+does not identify non-human subjects or judge the overall composition. It is
+disabled by default, does not upload or separately save analysis frames, pauses
+during photo capture, and is hidden when the grid is turned off.
+
 ## AI Pose Assist
 
 On Android, choose a built-in **standing** or **hand-on-hip** pose, then tap

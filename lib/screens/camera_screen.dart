@@ -8,6 +8,7 @@ import 'package:image_picker/image_picker.dart';
 import '../data/sample_poses.dart';
 import '../models/saved_angle.dart';
 import '../widgets/ghost_overlay.dart';
+import '../widgets/grid_alignment_guide.dart';
 import '../widgets/level_indicator.dart';
 import '../widgets/pose_skeleton_overlay.dart';
 import 'angle_vault_screen.dart';
@@ -17,6 +18,7 @@ import '../widgets/smart_grid.dart';
 import '../widgets/smart_grid_painter.dart';
 import '../models/pose_item.dart';
 import '../services/camera_service.dart';
+import '../services/grid_composition_service.dart';
 import '../services/pose_detection_service.dart';
 import '../services/pose_matching_service.dart';
 import '../services/sensor_service.dart';
@@ -81,11 +83,17 @@ class _CameraScreenState extends State<CameraScreen> {
   bool _isCameraPinchZoomEnabled = false;
   bool _isZoomControlVisible = false;
   bool _isPoseAssistEnabled = false;
+  bool _isGridCompositionAssistEnabled = false;
   bool _areCameraSlidersSuspended = false;
+  Future<void>? _poseStreamStart;
   DateTime? _lastPoseFrameStartedAt;
   int _poseMatchStreak = 0;
   DetectedPoseFrame? _detectedPoseFrame;
   PoseMatchResult? _poseMatchResult;
+  String? _gridCompositionAdvice;
+
+  bool get _hasActivePoseGuides =>
+      _isPoseAssistEnabled || _isGridCompositionAssistEnabled;
 
   @override
   void initState() {
@@ -276,7 +284,7 @@ class _CameraScreenState extends State<CameraScreen> {
     if (_isPickingPose) return;
 
     final messenger = ScaffoldMessenger.of(context);
-    if (_isPoseAssistEnabled) await _stopPoseAssist();
+    if (_hasActivePoseGuides) await _stopAllPoseGuides();
     if (!mounted) return;
     setState(() {
       _isPickingPose = true;
@@ -378,7 +386,7 @@ class _CameraScreenState extends State<CameraScreen> {
   }
 
   void _removeGhostImage() {
-    if (_isPoseAssistEnabled) unawaited(_stopPoseAssist());
+    if (_hasActivePoseGuides) unawaited(_stopAllPoseGuides());
     setState(() {
       _selectedPosePath = null;
       _selectedCatalogPose = null;
@@ -404,7 +412,7 @@ class _CameraScreenState extends State<CameraScreen> {
   }
 
   Future<void> _selectCatalogPose() async {
-    if (_isPoseAssistEnabled) await _stopPoseAssist();
+    if (_hasActivePoseGuides) await _stopAllPoseGuides();
     if (!mounted) return;
     final pose = await _withCameraSlidersSuspended(
       () => Navigator.of(context).push<PoseItem>(
@@ -429,7 +437,7 @@ class _CameraScreenState extends State<CameraScreen> {
   }
 
   Future<void> _openAngleVault() async {
-    if (_isPoseAssistEnabled) await _stopPoseAssist();
+    if (_hasActivePoseGuides) await _stopAllPoseGuides();
     if (!mounted) return;
     final angle = await _withCameraSlidersSuspended(
       () => Navigator.of(context).push<SavedAngle>(
@@ -552,7 +560,7 @@ class _CameraScreenState extends State<CameraScreen> {
     String? galleryWarning;
     Object? captureError;
     try {
-      if (_isPoseAssistEnabled) await _stopPoseAssist();
+      if (_hasActivePoseGuides) await _pausePoseStreamForCapture();
       if (!mounted) return;
       await WidgetsBinding.instance.endOfFrame;
       final temporaryPath = await _cameraService.capturePicture();
@@ -569,12 +577,11 @@ class _CameraScreenState extends State<CameraScreen> {
       captureError = error;
     } finally {
       if (mounted) {
-        setState(() {
-          _isCapturing = false;
-          _isCaptureInProgress = false;
-        });
+        setState(() => _isCapturing = false);
       }
     }
+    await _resumePoseStreamAfterCapture();
+    if (mounted) setState(() => _isCaptureInProgress = false);
 
     if (!mounted) return;
     if (capturedPath == null) {
@@ -671,15 +678,112 @@ class _CameraScreenState extends State<CameraScreen> {
       _poseMatchResult = null;
     });
     try {
-      await controller.startImageStream((image) {
-        _processPoseFrame(image, controller);
-      });
+      await _ensurePoseStream(controller);
     } catch (error) {
       if (!mounted) return;
       setState(() => _isPoseAssistEnabled = false);
+      if (!_isGridCompositionAssistEnabled) {
+        await _stopImageStream(controller);
+      }
       messenger.showSnackBar(
         SnackBar(content: Text('Không thể bật nhận diện dáng: $error')),
       );
+    }
+  }
+
+  Future<void> _toggleGridCompositionAssist() async {
+    if (_isGridCompositionAssistEnabled) {
+      final controller = _cameraService.controller;
+      setState(() {
+        _isGridCompositionAssistEnabled = false;
+        _gridCompositionAdvice = null;
+      });
+      if (controller != null && !_isPoseAssistEnabled) {
+        await _stopImageStream(controller);
+      }
+      return;
+    }
+
+    final messenger = ScaffoldMessenger.of(context);
+    if (!_isGridVisible) {
+      messenger.showSnackBar(
+        const SnackBar(content: Text('Hãy bật lưới trước khi bật gợi ý AI.')),
+      );
+      return;
+    }
+    if (kIsWeb || defaultTargetPlatform != TargetPlatform.android) {
+      messenger.showSnackBar(
+        const SnackBar(
+          content: Text('Gợi ý bố cục bằng AI hiện hỗ trợ Android.'),
+        ),
+      );
+      return;
+    }
+
+    final controller = _cameraService.controller;
+    if (controller == null || !controller.value.isInitialized) {
+      messenger.showSnackBar(
+        const SnackBar(content: Text('Camera chưa sẵn sàng.')),
+      );
+      return;
+    }
+
+    setState(() {
+      _isGridCompositionAssistEnabled = true;
+      _lastPoseFrameStartedAt = null;
+      _detectedPoseFrame = null;
+      _gridCompositionAdvice = null;
+    });
+    try {
+      await _ensurePoseStream(controller);
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _isGridCompositionAssistEnabled = false;
+        _gridCompositionAdvice = null;
+      });
+      if (!_isPoseAssistEnabled) {
+        await _stopImageStream(controller);
+      }
+      messenger.showSnackBar(
+        SnackBar(content: Text('Không thể bật gợi ý bố cục: $error')),
+      );
+    }
+  }
+
+  Future<void> _ensurePoseStream(CameraController controller) async {
+    if (controller.value.isStreamingImages) return;
+    final pendingStart = _poseStreamStart;
+    if (pendingStart != null) {
+      await pendingStart;
+      return;
+    }
+
+    final start = controller.startImageStream((image) {
+      _processPoseFrame(image, controller);
+    });
+    _poseStreamStart = start;
+    try {
+      await start;
+    } finally {
+      if (identical(_poseStreamStart, start)) _poseStreamStart = null;
+    }
+    if (!_hasActivePoseGuides) await _stopImageStream(controller);
+  }
+
+  Future<void> _toggleGridVisibility() async {
+    final hidingGrid = _isGridVisible;
+    setState(() {
+      _isGridVisible = !hidingGrid;
+      if (hidingGrid && _isGridCompositionAssistEnabled) {
+        _isGridCompositionAssistEnabled = false;
+        _gridCompositionAdvice = null;
+      }
+    });
+    if (hidingGrid && !_isPoseAssistEnabled) {
+      _lastPoseFrameStartedAt = null;
+      final controller = _cameraService.controller;
+      if (controller != null) await _stopImageStream(controller);
     }
   }
 
@@ -1028,13 +1132,88 @@ class _CameraScreenState extends State<CameraScreen> {
     if (mounted) {
       setState(() {
         _isPoseAssistEnabled = false;
+        _poseMatchStreak = 0;
+        _poseMatchResult = null;
+        if (!_isGridCompositionAssistEnabled) {
+          _lastPoseFrameStartedAt = null;
+          _detectedPoseFrame = null;
+          _gridCompositionAdvice = null;
+        }
+      });
+    }
+    if (controller != null && !_isGridCompositionAssistEnabled) {
+      await _stopImageStream(controller);
+    }
+  }
+
+  Future<void> _stopAllPoseGuides() async {
+    final controller = _cameraService.controller;
+    if (mounted) {
+      setState(() {
+        _isPoseAssistEnabled = false;
+        _isGridCompositionAssistEnabled = false;
         _lastPoseFrameStartedAt = null;
         _poseMatchStreak = 0;
         _detectedPoseFrame = null;
         _poseMatchResult = null;
+        _gridCompositionAdvice = null;
       });
     }
     if (controller != null) await _stopImageStream(controller);
+  }
+
+  Future<void> _pausePoseStreamForCapture() async {
+    final controller = _cameraService.controller;
+    if (controller != null) await _stopImageStream(controller);
+    if (!mounted) return;
+    setState(() {
+      _lastPoseFrameStartedAt = null;
+      _detectedPoseFrame = null;
+      _poseMatchStreak = 0;
+      _poseMatchResult = null;
+      _gridCompositionAdvice = null;
+    });
+  }
+
+  Future<void> _resumePoseStreamAfterCapture() async {
+    if (!mounted || !_hasActivePoseGuides) return;
+    final controller = _cameraService.controller;
+    if (controller == null || !controller.value.isInitialized) {
+      setState(() {
+        _isPoseAssistEnabled = false;
+        _isGridCompositionAssistEnabled = false;
+        _lastPoseFrameStartedAt = null;
+        _poseMatchStreak = 0;
+        _detectedPoseFrame = null;
+        _poseMatchResult = null;
+        _gridCompositionAdvice = null;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Camera chưa sẵn sàng để tiếp tục gợi ý AI.'),
+        ),
+      );
+      return;
+    }
+    try {
+      await _ensurePoseStream(controller);
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _isPoseAssistEnabled = false;
+        _isGridCompositionAssistEnabled = false;
+        _lastPoseFrameStartedAt = null;
+        _poseMatchStreak = 0;
+        _detectedPoseFrame = null;
+        _poseMatchResult = null;
+        _gridCompositionAdvice = null;
+      });
+      await _stopImageStream(controller);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Không thể tiếp tục gợi ý AI: $error')),
+      );
+    }
   }
 
   Future<void> _stopImageStream(CameraController controller) async {
@@ -1048,7 +1227,9 @@ class _CameraScreenState extends State<CameraScreen> {
     CameraController controller,
   ) async {
     final targetPose = _selectedCatalogPose ?? _selectedUploadedPose;
-    if (!_isPoseAssistEnabled || targetPose == null) return;
+    if (!_hasActivePoseGuides || (_isPoseAssistEnabled && targetPose == null)) {
+      return;
+    }
     final now = DateTime.now();
     final lastFrameStartedAt = _lastPoseFrameStartedAt;
     if (lastFrameStartedAt != null &&
@@ -1063,23 +1244,41 @@ class _CameraScreenState extends State<CameraScreen> {
         controller.description,
         controller.value.deviceOrientation,
       );
-      if (!mounted || !_isPoseAssistEnabled || frame == null) return;
-      final result = PoseMatchingService.evaluate(frame.pose, targetPose);
+      if (!mounted || _isCapturing || !_hasActivePoseGuides || frame == null) {
+        return;
+      }
+      final currentTargetPose = _selectedCatalogPose ?? _selectedUploadedPose;
+      if (_isPoseAssistEnabled && currentTargetPose == null) return;
+      final result = _isPoseAssistEnabled
+          ? PoseMatchingService.evaluate(frame.pose, currentTargetPose!)
+          : null;
+      final compositionAdvice = _isGridCompositionAssistEnabled
+          ? GridCompositionService.evaluate(frame, _gridType)
+          : null;
       setState(() {
         _detectedPoseFrame = frame;
         _poseMatchResult = result;
-        _poseMatchStreak = result.isMatched
+        _poseMatchStreak = result?.isMatched == true
             ? (_poseMatchStreak + 1).clamp(0, 3).toInt()
             : 0;
+        _gridCompositionAdvice = compositionAdvice;
       });
     } catch (error) {
-      if (!mounted || !_isPoseAssistEnabled) return;
+      if (!mounted || !_hasActivePoseGuides) return;
       final messenger = ScaffoldMessenger.of(context);
-      setState(() => _isPoseAssistEnabled = false);
+      setState(() {
+        _isPoseAssistEnabled = false;
+        _isGridCompositionAssistEnabled = false;
+        _lastPoseFrameStartedAt = null;
+        _poseMatchStreak = 0;
+        _detectedPoseFrame = null;
+        _poseMatchResult = null;
+        _gridCompositionAdvice = null;
+      });
       await _stopImageStream(controller);
       if (!mounted) return;
       messenger.showSnackBar(
-        SnackBar(content: Text('Lỗi nhận diện dáng: $error')),
+        SnackBar(content: Text('Lỗi phân tích chủ thể: $error')),
       );
     }
   }
@@ -1200,6 +1399,19 @@ class _CameraScreenState extends State<CameraScreen> {
                           gridType: _gridType,
                           opacity: _gridOpacity,
                         ),
+                        if (_isGridVisible)
+                          Positioned(
+                            left: 12,
+                            right: 12,
+                            bottom: 12,
+                            child: GridAlignmentGuide(
+                              gridType: _gridType,
+                              liveAdvice: _isGridCompositionAssistEnabled
+                                  ? _gridCompositionAdvice ??
+                                        'Đang tìm người trong khung hình...'
+                                  : null,
+                            ),
+                          ),
                         if (_selectedPosePath != null ||
                             _selectedCatalogPose != null)
                           ValueListenableBuilder<GhostTransform>(
@@ -1364,10 +1576,7 @@ class _CameraScreenState extends State<CameraScreen> {
                                               : Icons.grid_off,
                                           color: Colors.white,
                                         ),
-                                        onPressed: () => setState(
-                                          () =>
-                                              _isGridVisible = !_isGridVisible,
-                                        ),
+                                        onPressed: _toggleGridVisibility,
                                       ),
                                     ],
                                   ),
@@ -1376,6 +1585,18 @@ class _CameraScreenState extends State<CameraScreen> {
                               Row(
                                 mainAxisAlignment: MainAxisAlignment.end,
                                 children: [
+                                  IconButton(
+                                    tooltip: _isGridCompositionAssistEnabled
+                                        ? 'Tắt gợi ý căn lưới bằng AI'
+                                        : 'Bật gợi ý căn lưới bằng AI',
+                                    icon: Icon(
+                                      Icons.auto_awesome,
+                                      color: _isGridCompositionAssistEnabled
+                                          ? Colors.yellowAccent
+                                          : Colors.white,
+                                    ),
+                                    onPressed: _toggleGridCompositionAssist,
+                                  ),
                                   IconButton(
                                     tooltip: 'Mở bộ sưu tập ảnh',
                                     onPressed: _openGallery,
